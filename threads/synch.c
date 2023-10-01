@@ -105,9 +105,13 @@ void sema_up(struct semaphore *sema) {
     ASSERT(sema != NULL);
 
     old_level = intr_disable();
-    if (!list_empty(&sema->waiters))
-        thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+    if (!list_empty(&sema->waiters)){
+        list_sort(&sema->waiters, priority_comparison, NULL); // priority 가 큰 순서대로 정렬
+        thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem)); //ready_list에 넣어줌
+    }
+
     sema->value++;
+    thread_check_yield();   // 현재 thread의 priority와 ready_list의 priority를 비교하여 yield
     intr_set_level(old_level);
 }
 
