@@ -3,4 +3,4 @@ make clean
 make
 cd build
 source ../../activate
-pintos -- -q run priority-sema
+pintos -- -q run priority-donate-multiple
