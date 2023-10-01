@@ -153,4 +153,6 @@ int thread_get_load_avg(void);
 
 void do_iret(struct intr_frame *tf);
 
+void thread_check_yield(void);
+
 #endif /* threads/thread.h */
