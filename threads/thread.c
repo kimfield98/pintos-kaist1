@@ -632,3 +632,13 @@ static tid_t allocate_tid(void) {
 
     return tid;
 }
+
+void thread_check_yield(void) {
+	if (!list_empty(&ready_list)) {
+		struct list_elem *front = list_front(&ready_list);
+		struct thread *front_thread = list_entry(front, struct thread, elem);
+		if (front_thread->priority > thread_current()->priority) {
+			thread_yield();
+		}
+	}
+}
