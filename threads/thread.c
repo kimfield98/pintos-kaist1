@@ -356,20 +356,29 @@ void thread_yield(void) {
     intr_set_level(old_level);
 }
 
+bool donate_priority_thread_cmp(const struct list_elem *new, const struct list_elem *existing, void *aux UNUSED) {
+    struct thread *t_new = list_entry(new, struct thread, donation_elem);
+    struct thread *t_existing = list_entry(existing, struct thread, donation_elem);
+
+    return t_new->priority > t_existing->priority;
+}
+
 /* (Edited) Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-    enum intr_level old_level = intr_disable();
-    struct thread *curr = thread_current();
-    // int previous_priority = thread_current()->priority;
-    // if (!list_empty(&ready_list)) {
-    // struct list_elem *target_elem_in_list = list_front(&ready_list);
-    // struct thread *top_of_readylist = list_entry(target_elem_in_list, struct thread, elem); }
+	thread_current ()->priority_original = new_priority;
+	thread_current ()->priority = new_priority;
 
-    curr->priority = new_priority; // Update the priority
-    if (!intr_context())           // Interrupt Handlers should never yield
-        thread_yield();            // Yield thread, which calls do_schedule and eventually schedule().
+	if(!list_empty(&thread_current()->donations)){
+		list_sort(&thread_current()->donations, donate_priority_thread_cmp, NULL);
+		
+		struct thread *t = list_entry(list_front(&thread_current()->donations), struct thread, donation_elem);
+		if(t->priority > thread_current()->priority){
+			thread_current()->priority = t->priority;
+		}
+	}
 
-    intr_set_level(old_level);
+	thread_check_yield();
+
 }
 
 /* Returns the current thread's priority. */
