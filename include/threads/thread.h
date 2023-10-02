@@ -86,24 +86,24 @@ typedef int tid_t;
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
 struct thread {
-    /* Owned by thread.c. */
-    tid_t tid;                 /* Thread identifier. */
-    enum thread_status status; /* Thread state. */
-    char name[16];             /* Name (for debugging purposes). */
-    int priority;              /* Priority. */
+    tid_t tid;                 /* Thread identifier 번호 */
+    enum thread_status status; /* Thread state (RUNNING 등) */
+    char name[16];             /* Name (디버깅 목적으로 활용) */
+    int priority;              /* Priority (함수들이 참고하는 실제 우선순위) */
 
-    /* For timer.c */
-    int64_t wake_tick; /* Tick to which it should wake up at, if any */
+    /* Alarm Clock 구현을 위해서 추가 */
+    int64_t wake_tick; // 스레드가 Sleep된다면, 깨어나야 할 System Tick 수치를
+                       // 여기에 저장
 
-    /* (New) For Priority Donations in synch.c */
-    int priority_original;
-    struct lock *waiting_for_lock;
-    struct list donations;          // (New)
-    struct list_elem donation_elem; // for lock->donations list
-    struct list_elem waiter_elem;   // for lock->semaphore.waiters list
+    /* Priority Donation을 위한 멤버들 */
+    int priority_original;          // 최초 부여된 우선순위를 저장하는 부분 (Donation이 다
+                                    // 끝났을 때 참고 목적)
+    struct lock *waiting_for_lock;  // 스레드가 특정 락을 기다리고 있을 경우 여기에 저장
+    struct list donations;          // 다른 스레드가 우선순위를 기부했을 경우 여기에 저장
+    struct list_elem donation_elem; // 우선순위를 기부할 경우 이 포인터를 해당
+                                    // 스레드의 donations 리스트에 저장
 
-    /* Shared between thread.c and synch.c. */
-    struct list_elem elem; /* List element. */
+    struct list_elem elem; /* 원래 포함되어 있는, 가장 기본적인 thread elem */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -153,6 +153,13 @@ int thread_get_load_avg(void);
 
 void do_iret(struct intr_frame *tf);
 
+/* 최초 버전 대비 직접 추가한 함수 프로토타입들 */
+
+void thread_sleep(int64_t wake_time_tick);
+void thread_wake(int64_t current_tick);
+bool comparison_for_sleeplist_insertion(const struct list_elem *new, const struct list_elem *existing, void *aux UNUSED);
+bool comparison_for_readylist_insertion(const struct list_elem *new, const struct list_elem *existing, void *aux UNUSED);
+bool comparison_for_priority_donation(const struct list_elem *new, const struct list_elem *existing, void *aux UNUSED);
 void thread_check_yield(void);
 
 #endif /* threads/thread.h */
