@@ -155,10 +155,9 @@ error:
    함수 실행 실패 시 -1을 반환.
    ("Switch the current execution context to the f_name") */
 int process_exec(void *f_name) {
-    char *file_name = f_name;
-    bool success;
 
-    // f_name 파싱해서 argv로 나누기
+    bool success;
+    char *file_name = (char *)f_name;
 
     /* 현재 스레드의 intr_frame을 사용하면 안됨.
        해당 intr_frame에 값을 저장하는 것은 스케쥴러의 역할 (reschedule 시점).
@@ -189,15 +188,9 @@ int process_exec(void *f_name) {
     NOT_REACHED();
 }
 
-/* Waits for thread TID to die and returns its exit status.  If
- * it was terminated by the kernel (i.e. killed due to an
- * exception), returns -1.  If TID is invalid or if it was not a
- * child of the calling process, or if process_wait() has already
- * been successfully called for the given TID, returns -1
- * immediately, without waiting.
- *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
+/* TID로 상징되는 Child Process가 끝나고 exit status로 돌아올 때 까지 대기시키는 함수.
+   kernel에 의해서 종료되는 경우 -1을 반환하며,
+   TID가 재대로 된 값이 아니거나, caller의 child가 아니거나, process_wait()이 이미 호출 되었어도 -1 반환. */
 int process_wait(tid_t child_tid UNUSED) {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
      * XXX:       to add infinite loop here before
@@ -324,25 +317,43 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     struct file *file = NULL;            // 파일 포인터를 NULL로 초기화
     off_t file_ofs;                      // 파일 내부에서 Offset 역할
     bool success = false;                // ELF 로딩이 성공이라면 true로 바뀜
-    int i;                               // ELF 헤더를 불러와서 읽는 for 반복문에서 사용
+    int i;                               // 반복문 전용 정수
 
     /* 새로 로딩되는 파일을 실행하는 스레드, 그 스레드를 위한 pml4 생성 */
     t->pml4 = pml4_create();
     if (t->pml4 == NULL)
         goto done;
-    process_activate(thread_current()); // 현재 스레드의 pml4를 활성화하고, 스택포인터를 현재 스레드의 커널 스택 위치로 이동
+    process_activate(t); // 현재 스레드의 pml4를 활성화하고, 스택포인터를 현재 스레드의 커널 스택 위치로 이동
+
+    /* Command Line으로 주어진 내용을 파싱/토큰화 */
+    char *argv[20] = {0}; // 배열 전체를 0으로 Initialize
+    int argc = 0;
+    char *token, *save_ptr;
+
+    for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+        // printf("%s\n", token);
+        argv[argc] = token;
+        argc++;
+
+        if (argc >= 20) {
+            printf("CUSTOM MESSAGE : Too Many Arguments passed to process_exec() for parsing \n");
+            break;
+        }
+    }
+
+    char *parsed_file_name = argv[0];
 
     /* 실제 Executable File을 로딩 */
-    file = filesys_open(file_name);
+    file = filesys_open(parsed_file_name);
     if (file == NULL) {
-        printf("load: %s: open failed\n", file_name);
+        printf("load: %s: open failed\n", parsed_file_name);
         goto done;
     }
 
     /* Executable File의 헤더를 읽고 검증 */
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr || memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 0x3E // amd64
         || ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Phdr) || ehdr.e_phnum > 1024) {
-        printf("load: %s: error loading executable\n", file_name);
+        printf("load: %s: error loading executable\n", parsed_file_name);
         goto done;
     }
 
@@ -403,9 +414,43 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     /* if_ 구조체의 instruction pointer가 프로그램의 Entry point를 가리키도록 업데이트 */
     if_->rip = ehdr.e_entry;
 
-    /* TODO: Your code goes here.
-     * TODO: Implement argument passing (see project2/argument_passing.html). */
+    /* 파싱된 나머지 argv, argc 값들을 스택에 추가 (여기서부터 끝까지) */
 
+    // (1) rsp 스택 포인터를 이동시키는 임시 포인터 선언 ; 현재 intr_frame의 스택 포인터 %rsp를 가리키면서 출발 (rsp 자체가 포인터니까 더블포인터로 구현)
+    char **stack_ptr = (char **)if_->rsp;
+
+    // (2) argv에 있는 문자열을 마지막에서 첫번째 순서로 스택에 추가
+    for (i = argc - 1; i >= 0; i--) {                     // argc는 argv 배열에 담긴 element의 숫자인데, j는 index 값이니 -1로 조정
+        stack_ptr -= strlen(argv[i]) + 1;                 // Null Pointer (\0)를 포함한 만큼 임시 스택 포인터를 아래로 이동 (위에서 시작하니)
+        strlcpy(stack_ptr, argv[i], strlen(argv[i]) + 1); // 도달한 임시 포인터 위치에서부터 위로 (주소가 위로 커지니) argv[j] 값을 추가
+        argv[i] = stack_ptr; // 실제 argv 배열의 값을 각 시점의 임시 포인터로 변경 (argv 포인터 배열로 만드는 작업 ; (3)에서 스택에 또 추가해야 함)
+    }
+
+    // (3) 스택 Alignment 조정 (word-align) ; 8의 배수에 맞춰서 임시 포인터 위치 조정 (0으로 채우기)
+    while ((uint64_t)stack_ptr % 8 != 0) {
+        stack_ptr--;
+        *stack_ptr = 0;
+    }
+
+    // (4) 1번에서 argv 배열을 각 요소의 메모리 위치를 가리키는 배열포인터로 전환했으니, 이제 각 값들을 다시 스택에 추가
+    stack_ptr -= (argc + 1) * sizeof(char *); // 각 포인터는 char 크기 ; 그만큼 스택 임시포인터 하향 조정 ; argc + 1은 NULL 값을 추가하기 위한 선제 조치
+    for (i = 0; i < argc; i++) {              // 이제 반복문으로 argv 포인터 배열의 각 요소들을 stack_ptr에 추가
+        stack_ptr[i] = argv[i];               // 공간을 확보한 stack_ptr에서부터 char* 크기만큼 i번 이동, 각 위치에 argv[i]의 포인터를 저장
+    }
+    stack_ptr[argc] = NULL; // argc가 4라면, argv[4]의 위치에 NULL Terminator를 추가 (x86-64 컨벤션)
+
+    // (5) 스택의 맨 위에 fake return address 추가
+    stack_ptr--;
+    *stack_ptr = 0;
+
+    // (6) 스택 추가가 끝났으니, intr_frame의 %rsi %rdi 값도 변경
+    if_->R.rsi = (uint64_t)stack_ptr;
+    if_->R.rdi = argc;
+
+    // (7) intr_frame의 유저 스택 포인터 rsp 값도 업데이트
+    if_->rsp = stack_ptr;
+
+    /* 성공했다고 회신 예정이니 값 변경 */
     success = true;
 
 done:
