@@ -299,7 +299,8 @@ void thread_yield(void) {
 void thread_check_yield(void) {
 
     /* ready_list가 비어있지 않고, ready_list에서 제일 우선순위가 높은 스레드의 우선순위가 현재 run 중인 스레드의 우선순위보다 높을 경우 */
-    if (!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority) {
+    /* project 2 하면서 추가 : interrupt handler가 디스크 loading 시점에서 sema_up을 하기도 함 ; 따라서 !intr_context() 필수 */
+    if (!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority && !intr_context()) {
         thread_yield();
     }
 }
