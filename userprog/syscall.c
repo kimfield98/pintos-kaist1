@@ -4,12 +4,41 @@
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/thread.h"
+
 #include "userprog/gdt.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 
+/* 시스템콜 핸들러 함수 프로토타입 */
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+
+/* 실제 시스템콜 함수 프로토타입 */
+void halt(void);
+void exit(int status);
+pid_t fork(const char *thread_name);
+int exec(const char *cmd_line);
+int wait(pid_t pid);
+bool create(const char *file, unsigned initial_size);
+bool remove(const char *file);
+int open(const char *file);
+int filesize(int fd);
+int read(int fd, void *buffer, unsigned size);
+int write(int fd, const void *buffer, unsigned size);
+// seek
+// tell
+// close
+
+/* File Descriptor 관련 함수 Prototype & Global Variables */
+int allocate_fd(struct file *file);
+struct file *get_file_from_fd(int fd);
+void release_fd(int fd);
+void close_file(int fd);
+void fd_table_destroy();
+
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////// System Call Handlers //////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 /* System call.
  *
@@ -34,28 +63,53 @@ void syscall_init(void) {
     write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
+/* System Call Interface 역할을 하는 함수. */
 void syscall_handler(struct intr_frame *f) {
-    // TODO: Your implementation goes here.
 
-    // Parameter로 주어지는 포인터들을 Validate 해야 함 (User area, valid address)
-    // Argument들을 user stack에서 kernel로 복사해 와야 함
+    // 보통 유저-사이드에서 호출되는 시스템 전용 함수 내에서 rax를 셋업하고 커널로 INT N을 호출해서 넘어가게 되며,
+    // 이 과정에서 %rdi, %rsi, %rdx, %r10, %r8, and %r9 레지스터 6개에 Argument도 탑재
+    // System Call Number 참고 : /pintos-kaist/include/lib/syscall-nr.h
 
-    // System Call Number를 통해서 실제 시스템콜을 호출해야 함
-    // /pintos-kaist/include/lib/syscall-nr.h
+    // 유저가 레지스터로 전달하는 포인터들을 Validate 해야 함 (User area, valid address 여부)
+    // 이 Argument들을 user stack에서 kernel로 복사해 와야 함 (커널에서 바로 유저 접근 지양)
 
-    // return value는 %rax에 저장되어야 함
-
-    // printf("system call!\n");
-    // thread_exit();
+    // 커널-사이드에서 실행된 결과물을 %rax에 넣어서 반환해야 함
 
     int syscall_num = f->R.rax;
-    // printf("System call: %d\n", syscall_num);
 
     switch (syscall_num) {
 
+    case SYS_HALT:
+        break;
+
     case SYS_EXIT:
         exit(f->R.rdi);
+        break;
+
+    case SYS_FORK:
+        break;
+
+    case SYS_EXEC:
+        break;
+
+    case SYS_WAIT:
+        break;
+
+    case SYS_CREATE:
+        f->R.rax = create(f->R.rdi, f->R.rsi);
+        break;
+
+    case SYS_REMOVE:
+        break;
+
+    case SYS_OPEN:
+        f->R.rax = open(f->R.rdi);
+        break;
+
+    case SYS_FILESIZE:
+        break;
+
+    case SYS_READ:
         break;
 
     case SYS_WRITE:
@@ -63,12 +117,26 @@ void syscall_handler(struct intr_frame *f) {
         // printf("write: %d\n", f->R.rax);
         break;
 
+    case SYS_SEEK:
+        break;
+
+    case SYS_TELL:
+        break;
+
+    case SYS_CLOSE:
+        break;
+
     default:
         printf("Unknown system call: %d\n", syscall_num);
         thread_exit();
     }
 
-    //예외처리 더 해줘야함
+    /* Debug */
+    // printf("System call: %d\n", syscall_num);
+    // printf("system call!\n");
+    // thread_exit();
+
+    // 예외처리 더 해줘야함
     return -1;
 }
 
@@ -78,33 +146,175 @@ void syscall_handler(struct intr_frame *f) {
 
 // void halt(void);
 
+/* 현재 구동되던 유저 프로그램을 종료시키고, 커널로 Status값을 돌려주는 시스템콜.
+   만일 프로세스의 Parent가 기다리고 있다면 status 값이 parent에게 전달됨.
+   전통적으로 0은 Success, nonzero value는 실패를 의미함 (return). */
 void exit(int status) {
     printf("%s: exit(%d)\n", thread_current()->name, status);
-    //확실하지 않음
     // printf("%s\n", thread_current()->name);
+
     thread_exit();
-}
+} // 확실하지 않음, 아직 완성본 아님
 
 // pid_t fork(const char *thread_name);
 // int exec(const char *cmd_line);
 // int wait(pid_t pid);
-// bool create(const char *file, unsigned initial_size);
+
+/* 'file'이라는 이름을 가진 'initial_size' 바이트 크기의 파일을 새로 생성하는 시스템콜.
+   성공하면 true, 실패하면 false를 반환하면 됨.
+   생성에 성공한다고 해서 그 파일을 여는게 아님 (별도의 시스템콜로 진행됨) */
+bool create(const char *file, unsigned initial_size) {
+
+    bool success = false;
+
+    // if (file == NULL)
+    //     return success;
+
+    /* filesys.c의 filesys_create 함수 사용 ; 이 함수도 성공시 bool 반환 */
+    success = filesys_create(file, initial_size);
+
+    /* 따라서 그냥 그대로 돌려주면 됨 */
+    return success;
+}
+
 // bool remove(const char *file);
-// int open(const char *file);
+
+/* 'file'이라는 이름을 가진 파일을 여는 시스템콜.
+   file descriptor 값을 반환 (non negative integer). 실패시 -1.
+   fd 값 0 (STDIN_FILENO) ; Standard Input 전용 번호
+   fd 값 1 (STDIN_FILENO) ; Standard Output 전용 번호
+   따라서 0과 1을 절대 반환할 수 없음.
+   각 프로세스는 각자의 file descriptor set를 가지고 있음.
+   이 file descriptor 값들은 child process에게도 승계됨.
+   같은 파일이 여러번 열릴 경우 (단일/복수 프로세스 무관), 매번 새로운 fd 값이 생성됨.
+   같은 파일이 각각 다른 fd 값을 갖는 만큼 각각 별도로 시스템콜을 통해서 닫아줘야 함.
+   이 fd들은 파일 내 위치 포인터를 공유하지 않음. */
+int open(const char *file) {
+
+    if (file == NULL)
+        return -1;
+
+    /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
+    struct file *opened_file = filesys_open(file);
+    if (!opened_file)
+        return -1;
+
+    /* File Descriptor 관련 함수들 (참고용 ; 삭제 요망) */
+    // int allocate_fd(struct file * file);
+    // struct file *get_file_from_fd(int fd);
+    // void release_fd(int fd);
+    // void close_file(int fd);
+    // void fd_table_destroy();
+
+    /* File Descriptor 번호 부여 및 테이블에 삽입 */
+    int fd = allocate_fd(opened_file);
+
+    /* File Descriptor Table이 가득차면 그냥 파일 닫기 */
+    if (fd == -1) {
+        file_close(opened_file);
+        return -1;
+    }
+
+    /* 여기까지 왔으면 성공했으니 fd값 반환 */
+    return fd;
+}
+
 // int filesize(int fd);
 // int read(int fd, void *buffer, unsigned size);
 
+/* Open된 file fd에서 'size' 바이트만큼 'buffer'에 저장하는 시스템콜.
+   성공시 Write한 바이트 크기를 반환하며, 요청보다 적을 수 있음.
+   보통 End-of-file을 넘어서서 작성하게 될 경우 파일 크기가 커져야 하지만,
+   PintOS에 제공되는 기본 파일시스템은 이 기능을 지원하지 않음.
+   따라서 EoF까지 최대한 작성한 뒤에 성공한 글자 수를 반환하게 됨.
+   fd == 1은 시스템 콘솔에 작성하는 Shortcut (테스트용).
+   시스템 콘솔에 write하기 위한 코드는 buffer에 있는 모든 데이터를 putbuf()로 한번에 사용해야 함 (수백바이트 크기가 아니라면).
+   한번에 putbuf()를 하지 않는다면 다양한 프로세스들의 아웃풋이 콘솔에 혼재되어 프린트되게 됨. */
 int write(int fd, const void *buffer, unsigned size) {
+
     if (fd == 1) {
         putbuf(buffer, size);
         return size;
     }
+
     return -1;
-}
+
+} // 이것도 아직 완성본 아님
 
 // void seek(int fd, unsigned position);
 // unsigned tell(int fd);
 // void close(int fd);
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////// File Descriptor 전용 함수들 ////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/* init_thread()에서 palloc 으로 struct thread userprog의 struct file **fd_table을 초기화 했음 */
+
+/* fd 번호를 새로 allocate 하는 함수 */
+int allocate_fd(struct file *file) {
+
+    struct thread *t = thread_current(); // user thread는 in the kernel이 된 상태 ; kernel thread가 아님
+
+    lock_acquire(&t->fd_lock);
+    /* init_thread()에서 palloc된 페이지를 탐색, 0으로 채워진 공간을 확보 */
+    for (int i = 2; i < 128; i++) { // fd 0과 1번은 stdin stdout 전용이니 건너뛰어야 함 ; palloc 공간은 더 크지만 그냥 fd 개수는 128으로 제한
+        if (t->fd_table[i] == 0) {  // palloc에서 0으로 공간을 채웠으니, 0이면 빈 공간
+            t->fd_table[i] = file;  // 파일의 주소를 이 공간에 저장 (포인터/주소는 8바이트)
+            lock_release(&t->fd_lock);
+            return i; // i가 사실상 fd 값 역할
+        }
+    }
+    lock_release(&t->fd_lock);
+    return -1; // fd allocation에 실패할 경우
+}
+
+/* fd번호에서 실제 파일 포인터를 추출하는 함수 */
+struct file *get_file_from_fd(int fd) {
+
+    struct thread *t = thread_current();
+
+    if (fd >= 2 && fd < 128) {
+        return t->fd_table[fd];
+    }
+    return NULL; // Invalid fd
+}
+
+/* fd번호에 해당하는 공간을 0으로 다시 되돌리는 함수 */
+void release_fd(int fd) {
+
+    struct thread *t = thread_current();
+
+    lock_acquire(&t->fd_lock);
+    if (fd >= 2 && fd < 128) {
+        t->fd_table[fd] = 0;
+    }
+    lock_release(&t->fd_lock);
+}
+
+/* fd 번호에 해당하는 파일을 닫고 fd를 풀어주는 함수 */
+void close_file(int fd) {
+
+    struct file *f = get_file_from_fd(fd);
+
+    if (f) {
+        file_close(f);
+        release_fd(fd);
+    }
+}
+
+/* fd 테이블을 비우고 메모리도 풀어주는 함수 (thread_exit 전에 호출) */
+void fd_table_destroy() {
+
+    struct thread *t = thread_current();
+
+    for (int i = 2; i < 128; i++) {
+        if (t->fd_table[i]) {
+            file_close(t->fd_table[i]);
+        }
+    }
+    palloc_free_page(t->fd_table);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////// 공식 문서에서 제공되는 Helper 함수 ////////////////////////////

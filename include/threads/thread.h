@@ -6,6 +6,8 @@
 #include <stdint.h>
 
 #include "threads/interrupt.h"
+#include "threads/synch.h" // fd_lock을 스레드마다 구현하기 위함
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -22,6 +24,10 @@ enum thread_status {
    You can redefine this to whatever type you like. */
 typedef int tid_t;
 #define TID_ERROR ((tid_t)-1) /* Error value for tid_t. */
+
+/* PID 전용 Identifier Type*/
+typedef int pid_t;
+#define PID_ERROR ((pid_t)-1) /* Error value for tid_t. */
 
 /* Thread priorities. */
 #define PRI_MIN 0      /* Lowest priority. */
@@ -112,6 +118,9 @@ struct thread {
     // int exit_status;              // 프로세스 종료시 exit status 코드 저장
     // struct semaphore *child_lock; // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
     // bool already_waited;          // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
+
+    struct file **fd_table; // File Descriptor Table ; init_thread에서 한번 초기화
+    struct lock fd_lock;    // Allocate_fd()에서 사용되는 락, per thread
 
 #endif
 #ifdef VM

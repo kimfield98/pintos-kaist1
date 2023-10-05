@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
+#include "threads/synch.h" // fd_lock을 스레드마다 구현하기 위함
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
@@ -30,7 +31,10 @@ static void __do_fork(void *);
 /* 최초의 유저 프로세스인 initd를 포함한 모든 프로세스를 초기화 하는 공통 함수 */
 static void process_init(void) {
     struct thread *current = thread_current();
-    // 여기에 결국 뭔가 넣어야 함 (이대로는 아무런 의미가 없음 ㅎ);
+
+    /* 과연 이걸 여기에 넣는게 맞는것인가 */
+    thread_current()->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
+    lock_init(&(thread_current()->fd_lock));
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -117,7 +121,10 @@ static void __do_fork(void *aux) {
     struct intr_frame if_;
     struct thread *parent = (struct thread *)aux;
     struct thread *current = thread_current();
+
     /* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+    // 여기서 struct thread의 **fd_table 값도 child process에게 줘야 함
+
     struct intr_frame *parent_if;
     bool succ = true;
 
