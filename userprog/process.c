@@ -220,7 +220,7 @@ int process_exec(void *f_name) {
 int process_wait(tid_t child_tid) {
 
     int i;
-    for (i = 0; i < 2000000000; i++) {
+    for (i = 0; i < 1300000000; i++) {
         // 야매로 무한루프 돌리기
     }
     return -1;

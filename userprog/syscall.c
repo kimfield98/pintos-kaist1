@@ -13,6 +13,10 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
+/* 포인터 주소 확인 함수들 */
+bool pointer_validity_check(void *addr);
+bool buffer_validity_check(void *buffer, unsigned size);
+
 /* 실제 시스템콜 함수 프로토타입 */
 void halt(void);
 void exit(int status);
@@ -137,7 +141,59 @@ void syscall_handler(struct intr_frame *f) {
     // thread_exit();
 
     // 예외처리 더 해줘야함
-    return -1;
+    return;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////// Pointer Validity Checks /////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/* 유저 프로그램에게 전달받은 포인터를 검사하는 함수 */
+bool pointer_validity_check(void *addr) {
+
+    /* 제공된 주소가 NULL일 경우 */
+    if (addr == NULL)
+        return false;
+
+    /* 제공된 주소가 User Space가 아닌 경우 (커널에 속하는 경우) */
+    if (is_kernel_vaddr(addr))
+        return false;
+
+    /* 제공된 주소가 Unmapped일 경우 */
+    if (pml4_get_page(thread_current()->pml4, addr) == NULL)
+        return false; // pml4만 확인하는 함수 (실제로 핀토스에 나머지 pt들이 구현되어있는지 잘 모르겠음)
+
+    /* 다 통과했으니 */
+    return true;
+}
+
+/* 유저에게 전달받은 버퍼의 처음과 끝, 그리고 다시 중간을 검사하는 함수 (특히, 버퍼가 커서 복수의 페이지를 사용하는 경우) */
+bool buffer_validity_check(void *buffer, unsigned size) {
+
+    /* buffer의 최초 주소 (시작 주소)를 확인 */
+    if (!pointer_validity_check(buffer))
+        return false;
+
+    /* buffer의 마지막 주소를 확인 */
+    if (!pointer_validity_check(buffer + size - 1)) // GPT한데 코드를 확인받아보니, buffer+size가 딱 페이지의 끝일 경우 0으로 돌아가기 때문에 -1을 추천함
+        return false;
+
+    /* 각각의 페이지 크기 (PintOS는 4KB) */
+    const size_t PAGE_SIZE = 4096;
+
+    /* 버퍼의 시작과 끝주소를 정의 */
+    uintptr_t start = (uintptr_t)buffer; // GPT 한테 확인 받아보니, 포인터를 담을 수 있는 자료형인 uintptr_t를 사용하는걸 권장
+    uintptr_t end = start + size;        // 실제로 64x 시스템에서 int는 4B, 큰일날뻔
+
+    /* 한 페이지가 Mapped 상태라면 문제 없으니, 그 다음 페이지를 확인하는 방식 */
+    for (uintptr_t addr = start; addr < end; addr += PAGE_SIZE) {
+        if (!pointer_validity_check((void *)addr)) {
+            return false;
+        }
+    }
+
+    /* 버퍼의 전체 영역이 Valid하니까 */
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -150,11 +206,11 @@ void syscall_handler(struct intr_frame *f) {
    만일 프로세스의 Parent가 기다리고 있다면 status 값이 parent에게 전달됨.
    전통적으로 0은 Success, nonzero value는 실패를 의미함 (return). */
 void exit(int status) {
+
     printf("%s: exit(%d)\n", thread_current()->name, status);
-    // printf("%s\n", thread_current()->name);
 
     thread_exit();
-} // 확실하지 않음, 아직 완성본 아님
+}
 
 // pid_t fork(const char *thread_name);
 // int exec(const char *cmd_line);
@@ -165,10 +221,11 @@ void exit(int status) {
    생성에 성공한다고 해서 그 파일을 여는게 아님 (별도의 시스템콜로 진행됨) */
 bool create(const char *file, unsigned initial_size) {
 
-    bool success = false;
+    if (!pointer_validity_check(file)) {
+        exit(-1);
+    }
 
-    // if (file == NULL)
-    //     return success;
+    bool success = false;
 
     /* filesys.c의 filesys_create 함수 사용 ; 이 함수도 성공시 bool 반환 */
     success = filesys_create(file, initial_size);
@@ -191,20 +248,14 @@ bool create(const char *file, unsigned initial_size) {
    이 fd들은 파일 내 위치 포인터를 공유하지 않음. */
 int open(const char *file) {
 
-    if (file == NULL)
-        return -1;
+    if (!pointer_validity_check(file)) {
+        exit(-1);
+    }
 
     /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
     struct file *opened_file = filesys_open(file);
     if (!opened_file)
         return -1;
-
-    /* File Descriptor 관련 함수들 (참고용 ; 삭제 요망) */
-    // int allocate_fd(struct file * file);
-    // struct file *get_file_from_fd(int fd);
-    // void release_fd(int fd);
-    // void close_file(int fd);
-    // void fd_table_destroy();
 
     /* File Descriptor 번호 부여 및 테이블에 삽입 */
     int fd = allocate_fd(opened_file);
@@ -232,14 +283,17 @@ int open(const char *file) {
    한번에 putbuf()를 하지 않는다면 다양한 프로세스들의 아웃풋이 콘솔에 혼재되어 프린트되게 됨. */
 int write(int fd, const void *buffer, unsigned size) {
 
+    if (!buffer_validity_check(buffer, size)) {
+        exit(-1);
+    }
+
     if (fd == 1) {
         putbuf(buffer, size);
         return size;
     }
 
     return -1;
-
-} // 이것도 아직 완성본 아님
+}
 
 // void seek(int fd, unsigned position);
 // unsigned tell(int fd);
