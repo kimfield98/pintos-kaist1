@@ -422,6 +422,15 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     t->waiting_for_lock = NULL;      // 스레드가 특정 락을 기다리며 Block 상태로 들어갔을 때 설정
     list_init(&t->donations);        // 우선순위를 기부받는다면 저장하는 리스트
     t->magic = THREAD_MAGIC;
+
+    /* 유저 프로그램에 의해서 생성될 경우 별도의 struct thread 멤버들이 있으며, 해당 멤버들을 초기화 해줘야 함 */
+    // #ifdef USERPROG
+    //     list_init(&t->children); // 자세한 사항은 thread.h 참고 요망
+    //     t->exit_status = 0;
+    //     t->child_lock = (struct semaphore *)malloc(sizeof(struct semaphore));
+    //     sema_init(t->child_lock, 0);
+    //     t->already_waited = false;
+    // #endif
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */

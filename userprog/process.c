@@ -47,6 +47,10 @@ tid_t process_create_initd(const char *file_name) {
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
 
+    /* 스레드 이름 파싱 (테스트 통과용) */
+    char *save_ptr;
+    strtok_r(file_name, " ", &save_ptr); //파일이름 파싱
+
     /* file_name을 실행하기 위한 새로운 스레드를 생성 (스레드 이름도 initd) */
     tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
     if (tid == TID_ERROR)
@@ -183,6 +187,21 @@ int process_exec(void *f_name) {
     if (!success)
         return -1;
 
+    /* 프로그램이 로딩 되었으니, struct thread의 관련 정보들 업데이트 */
+
+    // if (success) {
+    //     struct thread *curr = thread_current();
+
+    //     curr->
+    //     // struct list children;         // 특정 스레드가 발생시킨 Child의 명단
+    //     // int exit_status;              // 프로세스 종료시 exit status 코드 저장
+    //     // struct semaphore *child_lock; // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
+    //     // bool already_waited;          // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
+    // }
+
+    /* Debug */
+    // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+
     /* 새로운 프로세스로 전환해서 작업 시작 */
     do_iret(&_if);
     NOT_REACHED();
@@ -191,20 +210,48 @@ int process_exec(void *f_name) {
 /* TID로 상징되는 Child Process가 끝나고 exit status로 돌아올 때 까지 대기시키는 함수.
    kernel에 의해서 종료되는 경우 -1을 반환하며,
    TID가 재대로 된 값이 아니거나, caller의 child가 아니거나, process_wait()이 이미 호출 되었어도 -1 반환. */
-int process_wait(tid_t child_tid UNUSED) {
-    /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-     * XXX:       to add infinite loop here before
-     * XXX:       implementing the process_wait. */
+int process_wait(tid_t child_tid) {
+
+    int i;
+    for (i = 0; i < 2000000000; i++) {
+        //야매로 무한루프 돌리기
+    }
     return -1;
+
+    /* 대강의 Pseudocode (struct thread 수정사항 반영) */
+    // struct thread *current = thread_current();
+    // struct thread *child = get_child_from_tid(child_tid);
+    // if (!child || child->parent != current || child->already_waited) {
+    //     return -1;
+    // }
+    // child->already_waited = true;
+    // sema_down(&child->child_lock);
+    // int status = child->exit_status;
+    // list_remove(&child->child_elem);
+    // return status;
 }
 
-/* Exit the process. This function is called by thread_exit (). */
+/* Pseudocode for extracting child */
+// struct thread* get_child_from_tid(tid_t tid) {
+//     struct thread *current = thread_current();
+//     struct list_elem *e;
+//     for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
+//         struct thread *child = list_entry(e, struct thread, child_elem);
+//         if (child->tid == tid) {
+//             return child;
+//         }
+//     }
+//     return NULL;
+// }
+
+/* thread_exit에서 호출되는 함수로, 프로세스를 종료시킴. */
 void process_exit(void) {
     struct thread *curr = thread_current();
     /* TODO: Your code goes here.
      * TODO: Implement process termination message (see
      * TODO: project2/process_termination.html).
      * TODO: We recommend you to implement process resource cleanup here. */
+    // struct thread의 child_lock free 하는것 잊지 말자
 
     process_cleanup();
 }
@@ -326,7 +373,7 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     process_activate(t); // 현재 스레드의 pml4를 활성화하고, 스택포인터를 현재 스레드의 커널 스택 위치로 이동
 
     /* Command Line으로 주어진 내용을 파싱/토큰화 */
-    char *argv[20] = {0}; // 배열 전체를 0으로 Initialize
+    char *argv[100] = {0}; // 배열 전체를 0으로 Initialize
     int argc = 0;
     char *token, *save_ptr;
 
@@ -335,7 +382,7 @@ static bool load(const char *file_name, struct intr_frame *if_) {
         argv[argc] = token;
         argc++;
 
-        if (argc >= 20) {
+        if (argc >= 100) {
             printf("CUSTOM MESSAGE : Too Many Arguments passed to process_exec() for parsing \n");
             break;
         }
@@ -444,7 +491,7 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     *stack_ptr = 0;
 
     // (6) 스택 추가가 끝났으니, intr_frame의 %rsi %rdi 값도 변경
-    if_->R.rsi = (uint64_t)stack_ptr;
+    if_->R.rsi = (uint64_t)stack_ptr + 8; // 시작점이 아니라, 스택의 맨 위에 있는 fake return address 다음부터 시작
     if_->R.rdi = argc;
 
     // (7) intr_frame의 유저 스택 포인터 rsp 값도 업데이트

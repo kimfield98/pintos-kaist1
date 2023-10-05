@@ -92,22 +92,27 @@ struct thread {
     int priority;              /* Priority (함수들이 참고하는 실제 우선순위) */
 
     /* Alarm Clock 구현을 위해서 추가 */
-    int64_t wake_tick; // 스레드가 Sleep된다면, 깨어나야 할 System Tick 수치를
-                       // 여기에 저장
+    int64_t wake_tick; // 스레드가 Sleep된다면, 깨어나야 할 System Tick 수치를 여기에 저장
 
     /* Priority Donation을 위한 멤버들 */
-    int priority_original;          // 최초 부여된 우선순위를 저장하는 부분 (Donation이 다
-                                    // 끝났을 때 참고 목적)
+    int priority_original;          // 최초 부여된 우선순위를 저장하는 부분 (Donation이 다 끝났을 때 참고 목적)
     struct lock *waiting_for_lock;  // 스레드가 특정 락을 기다리고 있을 경우 여기에 저장
     struct list donations;          // 다른 스레드가 우선순위를 기부했을 경우 여기에 저장
-    struct list_elem donation_elem; // 우선순위를 기부할 경우 이 포인터를 해당
-                                    // 스레드의 donations 리스트에 저장
+    struct list_elem donation_elem; // 우선순위를 기부할 경우 이 포인터를 해당 스레드의 donations 리스트에 저장
 
     struct list_elem elem; /* 원래 포함되어 있는, 가장 기본적인 thread elem */
 
 #ifdef USERPROG
-    /* Owned by userprog/process.c. */
+    /* 기본적으로 포함되어있는 멤버 */
     uint64_t *pml4; /* Page map level 4 */
+
+    /* process_wait() 및 exit()을 위해서 추가된 멤버 */
+    // struct list children;         // 특정 스레드가 발생시킨 Child의 명단
+    // struct list_elem child_elem;  // children 리스트 삽입 목적
+    // int exit_status;              // 프로세스 종료시 exit status 코드 저장
+    // struct semaphore *child_lock; // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
+    // bool already_waited;          // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
+
 #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
