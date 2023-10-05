@@ -221,7 +221,7 @@ int process_wait(tid_t child_tid) {
 
     int i;
     for (i = 0; i < 2000000000; i++) {
-        //야매로 무한루프 돌리기
+        // 야매로 무한루프 돌리기
     }
     return -1;
 
