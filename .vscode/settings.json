@@ -1,5 +1,14 @@
 {
     "files.associations": {
-        "numbers": "c"
+        "numbers": "c",
+        "*.inc": "c",
+        "*.tcc": "c",
+        "string_view": "c",
+        "atomic": "c",
+        "process.h": "c",
+        "synch.h": "c",
+        "palloc.h": "c",
+        "thread.h": "c",
+        "filesys.h": "c"
     }
 }
