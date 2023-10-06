@@ -8,6 +8,7 @@
         "process.h": "c",
         "synch.h": "c",
         "palloc.h": "c",
-        "thread.h": "c"
+        "thread.h": "c",
+        "filesys.h": "c"
     }
 }

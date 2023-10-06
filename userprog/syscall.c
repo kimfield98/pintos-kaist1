@@ -1,10 +1,10 @@
 #include "userprog/syscall.h"
+#include "filesys/filesys.h" // 씨발
 #include "intrinsic.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/thread.h"
-
 #include "userprog/gdt.h"
 #include <stdio.h>
 #include <syscall-nr.h>
