@@ -32,9 +32,7 @@ static void __do_fork(void *);
 static void process_init(void) {
     struct thread *current = thread_current();
 
-    /* 과연 이걸 여기에 넣는게 맞는것인가 */
-    // thread_current()->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
-    // lock_init(&(thread_current()->fd_lock));
+    /* 여기 뭔가 채워넣어야 할 것 같은 기분 (현재 아무것도 안하는 함수) */
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
