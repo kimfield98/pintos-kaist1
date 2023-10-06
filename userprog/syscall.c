@@ -111,6 +111,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FILESIZE:
+        f->R.rax = filesize(f->R.rdi);
         break;
 
     case SYS_READ:
@@ -162,7 +163,7 @@ bool pointer_validity_check(void *addr) {
 
     /* 제공된 주소가 Unmapped일 경우 */
     if (pml4_get_page(thread_current()->pml4, addr) == NULL)
-        return false; // pml4만 확인하는 함수 (실제로 핀토스에 나머지 pt들이 구현되어있는지 잘 모르겠음)
+        return false; // pml4만 확인하는 함수 (나머지 레벨의 page table 들도 검사해야하는데, 우선 이렇게)
 
     /* 다 통과했으니 */
     return true;
@@ -254,7 +255,8 @@ int open(const char *file) {
     }
 
     /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
-    struct file *opened_file = filesys_open(file);
+    struct file *opened_file;
+    opened_file = filesys_open(file); // *file의 주소 file
     if (!opened_file)
         return -1;
 
@@ -271,7 +273,22 @@ int open(const char *file) {
     return fd;
 }
 
-// int filesize(int fd);
+/* fd로 열린 파일의 파일 크기를 반환 */
+int filesize(int fd) {
+
+    /* fd 값을 검증하는 과정이 있으면 좋겠는데, 우선 스킵 */
+
+    /* fd에서 파일을 찾아서, */
+    struct file *file = get_file_from_fd(fd); // 여기서 fd 2~128을 검증하긴 함
+
+    /* 해당 파일을 검증 */
+    if (!file) {
+        return -1; // or set an appropriate error code
+    }
+
+    // Return the file's size
+    return file_length(file);
+}
 
 /* 'size' 바이트 만큼 열린 파일 fd에서 read를 실행, buffer에 저장하는 함수.
    함수 리턴값은 실제로 읽기에 성공한 바이트 수, 또는 실패시 -1.

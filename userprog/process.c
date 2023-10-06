@@ -23,16 +23,25 @@
 #include "vm/vm.h"
 #endif
 
+/* 기존 prototype들 */
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
+
+/* 새로운 함수 프로로타입 */
+void parse_argv_to_stack(char **argv, struct intr_frame *if_);
 
 /* 최초의 유저 프로세스인 initd를 포함한 모든 프로세스를 초기화 하는 공통 함수 */
 static void process_init(void) {
     struct thread *current = thread_current();
 
     /* 여기 뭔가 채워넣어야 할 것 같은 기분 (현재 아무것도 안하는 함수) */
+
+    // /* 스레드에 페이지 부여 */
+    // current = palloc_get_page(PAL_ZERO);
+    // if (current == NULL)
+    //     return TID_ERROR;
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -383,7 +392,7 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     char *token, *save_ptr;
 
     for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
-        // printf("%s\n", token);
+        printf("%s\n", token);
         argv[argc] = token;
         argc++;
 
@@ -467,6 +476,28 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     if_->rip = ehdr.e_entry;
 
     /* 파싱된 나머지 argv, argc 값들을 스택에 추가 (여기서부터 끝까지) */
+    parse_argv_to_stack(argv, if_);
+
+    /* 성공했다고 회신 예정이니 값 변경 */
+    success = true;
+
+done:
+    /* We arrive here whether the load is successful or not. */
+    file_close(file);
+    return success;
+}
+
+void parse_argv_to_stack(char **argv, struct intr_frame *if_) {
+
+    int i, j;
+    int argc = 0;
+    char **temp_argv = argv;
+
+    /* (0) Temp_argv 더블포인터로 argv 이동하되 값을 직접 건드리지 않고 작업 */
+    while (*temp_argv) {
+        argc++;
+        temp_argv++;
+    }
 
     // (1) rsp 스택 포인터를 이동시키는 임시 포인터 선언 ; 현재 intr_frame의 스택 포인터 %rsp를 가리키면서 출발 (rsp 자체가 포인터니까 더블포인터로 구현)
     char **stack_ptr = (char **)if_->rsp;
@@ -486,8 +517,8 @@ static bool load(const char *file_name, struct intr_frame *if_) {
 
     // (4) 1번에서 argv 배열을 각 요소의 메모리 위치를 가리키는 배열포인터로 전환했으니, 이제 각 값들을 다시 스택에 추가
     stack_ptr -= (argc + 1) * sizeof(char *); // 각 포인터는 char 크기 ; 그만큼 스택 임시포인터 하향 조정 ; argc + 1은 NULL 값을 추가하기 위한 선제 조치
-    for (i = 0; i < argc; i++) {              // 이제 반복문으로 argv 포인터 배열의 각 요소들을 stack_ptr에 추가
-        stack_ptr[i] = argv[i];               // 공간을 확보한 stack_ptr에서부터 char* 크기만큼 i번 이동, 각 위치에 argv[i]의 포인터를 저장
+    for (j = 0; j < argc; j++) {              // 이제 반복문으로 argv 포인터 배열의 각 요소들을 stack_ptr에 추가
+        stack_ptr[j] = argv[j];               // 공간을 확보한 stack_ptr에서부터 char* 크기만큼 i번 이동, 각 위치에 argv[i]의 포인터를 저장
     }
     stack_ptr[argc] = NULL; // argc가 4라면, argv[4]의 위치에 NULL Terminator를 추가 (x86-64 컨벤션)
 
@@ -501,14 +532,6 @@ static bool load(const char *file_name, struct intr_frame *if_) {
 
     // (7) intr_frame의 유저 스택 포인터 rsp 값도 업데이트
     if_->rsp = stack_ptr;
-
-    /* 성공했다고 회신 예정이니 값 변경 */
-    success = true;
-
-done:
-    /* We arrive here whether the load is successful or not. */
-    file_close(file);
-    return success;
 }
 
 /* Checks whether PHDR describes a valid, loadable segment in
