@@ -114,6 +114,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_READ:
+        f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
         break;
 
     case SYS_WRITE:
@@ -271,7 +272,37 @@ int open(const char *file) {
 }
 
 // int filesize(int fd);
-// int read(int fd, void *buffer, unsigned size);
+
+/* 'size' 바이트 만큼 열린 파일 fd에서 read를 실행, buffer에 저장하는 함수.
+   함수 리턴값은 실제로 읽기에 성공한 바이트 수, 또는 실패시 -1.
+   fd 0은 input_getc()를 통해서 키보드 입력값을 읽어옴. */
+int read(int fd, void *buffer, unsigned size) {
+
+    if (!buffer_validity_check(buffer, size)) {
+        exit(-1);
+    }
+
+    /* 읽어온 바이트 수를 기록할 변수 초기화 */
+    int read_count = 0;
+
+    /* fd = 0의 케이스 처리 ; input_getc()는 글자를 하나씩 읽어서 리턴하는 함수 (input.c) */
+    if (fd == 0) {
+        for (unsigned int i = 0; i < size; i++) {
+            ((unsigned char *)buffer)[i] = input_getc();
+            read_count++;
+        }
+        return read_count;
+    }
+
+    /* fd = 0이 아닐 경우 */
+    struct file *file = get_file_from_fd(fd);
+    if (!file)
+        return -1; // exit(-1)을 하려다가, 공식 문서에 적힌대로 우선 -1로 바꾼 상태
+
+    read_count = file_read(file, buffer, size); // file_read는 size를 (off_t*) 형태로 바라는 것 같은데, 에러가 떠서 일단 일반 사이즈로 넣음
+
+    return read_count;
+}
 
 /* Open된 file fd에서 'size' 바이트만큼 'buffer'에 저장하는 시스템콜.
    성공시 Write한 바이트 크기를 반환하며, 요청보다 적을 수 있음.

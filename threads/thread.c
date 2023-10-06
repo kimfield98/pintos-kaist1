@@ -143,6 +143,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     /* 스레드 초기화 작업 */
     init_thread(t, name, priority);
     tid = t->tid = allocate_tid();
+    t->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
+    lock_init(&t->fd_lock);
 
     /* 커널 스레드가 ready_list에 있다면 호출, Function/Aux 값을 부여 */
     t->tf.rip = (uintptr_t)kernel_thread;
