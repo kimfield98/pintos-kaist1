@@ -23,25 +23,21 @@
 #include "vm/vm.h"
 #endif
 
-/* 기존 prototype들 */
+/* 기본적인 함수 Prototype */
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
-/* 새로운 함수 프로로타입 */
-void parse_argv_to_stack(char **argv, struct intr_frame *if_);
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////// Process Initiation ////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 /* 최초의 유저 프로세스인 initd를 포함한 모든 프로세스를 초기화 하는 공통 함수 */
 static void process_init(void) {
     struct thread *current = thread_current();
 
     /* 여기 뭔가 채워넣어야 할 것 같은 기분 (현재 아무것도 안하는 함수) */
-
-    // /* 스레드에 페이지 부여 */
-    // current = palloc_get_page(PAL_ZERO);
-    // if (current == NULL)
-    //     return TID_ERROR;
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -82,16 +78,21 @@ static void initd(void *f_name) {
     NOT_REACHED();
 }
 
-/* Clones the current process as `name`. Returns the new process's thread id, or
- * TID_ERROR if the thread cannot be created. */
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////// Process Fork ////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/* 현재 구동중인 프로세스를 'name'으로 포크하는 함수.
+   성공시 새로운 프로세스의 TID를 반환하거나, 실패시 TID_ERROR 반환. */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
     /* Clone current thread to new thread.*/
     return thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
 }
 
-#ifndef VM
-/* Duplicate the parent's address space by passing this function to the
- * pml4_for_each. This is only for the project 2. */
+#ifndef VM // duplicate_pte는 VM으로 Define 되지 않았을 경우에만 참고되는 함수
+
+/* Parent의 Address Space를 복제하는 함수 (Project 2에서만 사용).
+   pml4_for_each() 함수에 Parameter로 넣어야 함. */
 static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     struct thread *current = thread_current();
     struct thread *parent = (struct thread *)aux;
@@ -118,19 +119,19 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     }
     return true;
 }
+
 #endif
 
-/* A thread function that copies parent's execution context.
- * Hint) parent->tf does not hold the userland context of the process.
- *       That is, you are required to pass second argument of process_fork to
- *       this function. */
+/* 스레드 Function으로, 부모의 Execution Context를 복사하는 함수. */
 static void __do_fork(void *aux) {
     struct intr_frame if_;
     struct thread *parent = (struct thread *)aux;
     struct thread *current = thread_current();
 
     /* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+
     // 여기서 struct thread의 **fd_table 값도 child process에게 줘야 함
+    // 힌트 : parent->tf는 프로세스의 유저 Context를 담고 있지 않음 (process_fork의 2번째 Parameter를 여기에 전달해야 함).
 
     struct intr_frame *parent_if;
     bool succ = true;
@@ -167,6 +168,10 @@ static void __do_fork(void *aux) {
 error:
     thread_exit();
 }
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////// Process Execution & Wait ////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 /* f_name을 새로 생성된 프로세스/스레드 내에서 실행하기 위한 함수.
    여기서 f_name은 전체 커맨드라인으로, argc-argv 파싱이 필요함.
@@ -258,6 +263,10 @@ int process_wait(tid_t child_tid) {
 //     return NULL;
 // }
 
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////// Process Exit //////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 /* thread_exit에서 호출되는 함수로, 프로세스를 종료시킴. */
 void process_exit(void) {
     struct thread *curr = thread_current();
@@ -301,6 +310,10 @@ static void process_cleanup(void) {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/////////////////////////// Process Context Switching //////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 /* Context Switch 시점에 매번 호출되어야 하는 함수  */
 void process_activate(struct thread *next) {
 
@@ -310,6 +323,10 @@ void process_activate(struct thread *next) {
     /* %rsp를 스레드의 커널 스택 포인터로 이동 */
     tss_update(next);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////// ELF related Macros ////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 /* We load ELF binaries.  The following definitions are taken
  * from the ELF specification, [ELF1], more-or-less verbatim.  */
@@ -364,6 +381,12 @@ struct ELF64_PHDR {
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
 
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////// File Load, Stack Setup etc //////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/* load() 보조함수 Prototype은 여기서 별도로 선언 */
+void parse_argv_to_stack(char **argv, struct intr_frame *if_);
 static bool setup_stack(struct intr_frame *if_);
 static bool validate_segment(const struct Phdr *, struct file *);
 static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
@@ -481,11 +504,12 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     success = true;
 
 done:
-    /* We arrive here whether the load is successful or not. */
+    /* 실행이 끝나고 나면 성공/실패 여부와 무관하게 아래 코드 실행 */
     file_close(file);
     return success;
 }
 
+/* load()가 너무 길어서 분리한 보조 함수. */
 void parse_argv_to_stack(char **argv, struct intr_frame *if_) {
 
     int i, j;
@@ -533,9 +557,9 @@ void parse_argv_to_stack(char **argv, struct intr_frame *if_) {
     if_->rsp = stack_ptr;
 }
 
-/* Checks whether PHDR describes a valid, loadable segment in
- * FILE and returns true if so, false otherwise. */
+/* 파일의 PHDR이 Valid하고 Load 가능한 세그먼트인지 확인하고 True/False를 반환하는 함수. */
 static bool validate_segment(const struct Phdr *phdr, struct file *file) {
+
     /* p_offset and p_vaddr must have the same page offset. */
     if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK))
         return false;
@@ -576,12 +600,9 @@ static bool validate_segment(const struct Phdr *phdr, struct file *file) {
     return true;
 }
 
-#ifndef VM
-/* Codes of this block will be ONLY USED DURING project 2.
- * If you want to implement the function for whole project 2, implement it
- * outside of #ifndef macro. */
+#ifndef VM // load_segment(), install_page(), setup_stack()은 Project 2에서만 사용
 
-/* load() helpers. */
+/* load_segment() 보조 함수 Prototype */
 static bool install_page(void *upage, void *kpage, bool writable);
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -671,6 +692,11 @@ static bool install_page(void *upage, void *kpage, bool writable) {
     return (pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
 }
 #else
+
+////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////// Project 3 ++ /////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */

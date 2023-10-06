@@ -29,9 +29,7 @@ int open(const char *file);
 int filesize(int fd);
 int read(int fd, void *buffer, unsigned size);
 int write(int fd, const void *buffer, unsigned size);
-// seek
-// tell
-// close
+// seek(), tell(), close()는 Project 4 이후
 
 /* File Descriptor 관련 함수 Prototype & Global Variables */
 int allocate_fd(struct file *file);
@@ -84,7 +82,7 @@ void syscall_handler(struct intr_frame *f) {
     switch (syscall_num) {
 
     case SYS_HALT:
-        break;
+        halt();
 
     case SYS_EXIT:
         exit(f->R.rdi);
@@ -120,29 +118,26 @@ void syscall_handler(struct intr_frame *f) {
 
     case SYS_WRITE:
         f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
-        // printf("write: %d\n", f->R.rax);
         break;
 
-    case SYS_SEEK:
-        break;
+        /*
+            case SYS_SEEK:
+                break;
 
-    case SYS_TELL:
-        break;
+            case SYS_TELL:
+                break;
 
-    case SYS_CLOSE:
-        break;
+            case SYS_CLOSE:
+                break;
+        */
 
     default:
         printf("Unknown system call: %d\n", syscall_num);
         thread_exit();
     }
 
-    /* Debug */
-    // printf("System call: %d\n", syscall_num);
-    // printf("system call!\n");
-    // thread_exit();
+    // 예외처리 더 해줘야할 수 있음.
 
-    // 예외처리 더 해줘야함
     return;
 }
 
@@ -177,7 +172,7 @@ bool buffer_validity_check(void *buffer, unsigned size) {
         return false;
 
     /* buffer의 마지막 주소를 확인 */
-    if (!pointer_validity_check(buffer + size - 1)) // GPT한데 코드를 확인받아보니, buffer+size가 딱 페이지의 끝일 경우 0으로 돌아가기 때문에 -1을 추천함
+    if (!pointer_validity_check(buffer + size - 1)) // GPT한데 코드를 확인받아보니, buffer+size가 딱 페이지의 끝일 경우 0으로 돌아가기 때문에 -1을 추천
         return false;
 
     /* 각각의 페이지 크기 (PintOS는 4KB) */
@@ -202,7 +197,9 @@ bool buffer_validity_check(void *buffer, unsigned size) {
 ////////////////////////// 구현 대상 System Call 함수들 ////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-// void halt(void);
+/* power_off()를 호출해서 PintOS를 꺼버리는 함수.
+   가급적 사용되지 말아야함 (디버깅이 필요한 특정 상황들에서 정보를 날릴 수도 있음). */
+void halt(void) { power_off(); }
 
 /* 현재 구동되던 유저 프로그램을 종료시키고, 커널로 Status값을 돌려주는 시스템콜.
    만일 프로세스의 Parent가 기다리고 있다면 status 값이 parent에게 전달됨.
@@ -212,10 +209,39 @@ void exit(int status) {
     printf("%s: exit(%d)\n", thread_current()->name, status);
 
     thread_exit();
-}
+} // 미완성일 가능성 있음 (테스트 필요).
 
+/* Create new process which is the clone of current process with the name THREAD_NAME.
+You don't need to clone the value of the registers except %RBX, %RSP, %RBP, and %R12 - %R15, which are callee-saved registers.
+Must return pid of the child process, otherwise shouldn't be a valid pid.
+In child process, the return value should be 0.
+The child should have DUPLICATED resources including file descriptor and virtual memory space.
+Parent process should never return from the fork until it knows whether the child process successfully cloned.
+That is, if the child process fail to duplicate the resource, the fork () call of parent should return the TID_ERROR.
+
+The template utilizes the pml4_for_each() in threads/mmu.c to copy entire user memory space,
+including corresponding pagetable structures, but you need to fill missing parts of passed pte_for_each_func (See virtual address). */
 // pid_t fork(const char *thread_name);
+
+/* Change current process to the executable whose name is given in cmd_line, passing any given arguments.
+This never returns if successful. Otherwise the process terminates with exit state -1, if the program cannot load or run for any reason.
+This function does not change the name of the thread that called exec. Please note that file descriptors remain open across an exec call. */
 // int exec(const char *cmd_line);
+
+/* Waits for a child process pid and retrieves the child's exit status.
+If pid is still alive, waits until it terminates.
+Then, returns the status that pid passed to exit.
+If pid did not call exit(), but was terminated by the kernel (e.g. killed due to an exception), wait(pid) must return -1.
+It is perfectly legal for a parent process to wait for child processes that have already terminated by the time the parent calls wait,
+but the kernel must still allow the parent to retrieve its child’s exit status, or learn that the child was terminated by the kernel.
+
+wait must fail and return -1 immediately if any of the following conditions is true:
+(1) pid does not refer to a direct child of the calling process.
+    pid is a direct child of the calling process if and only if the calling process received pid as a return value from a successful call to fork.
+    Note that children are not inherited: if A spawns child B and B spawns child process C, then A cannot wait for C, even if B is dead.
+    A call to wait(C) by process A must fail. Similarly, orphaned processes are not assigned to a new parent if their parent process exits before they do.
+(2) The process that calls wait has already called wait on pid.
+    That is, a process may wait for any given child at most once. */
 // int wait(pid_t pid);
 
 /* 'file'이라는 이름을 가진 'initial_size' 바이트 크기의 파일을 새로 생성하는 시스템콜.
@@ -236,6 +262,8 @@ bool create(const char *file, unsigned initial_size) {
     return success;
 }
 
+/* 'file'이라는 이름을 가진 파일을 삭제하는 함수. 성공하면 True, 실패는 False.
+   파일은 Open/Close와 무관하게 삭제될 수 있으며, 파일을 자동으로 닫지 않음. */
 // bool remove(const char *file);
 
 /* 'file'이라는 이름을 가진 파일을 여는 시스템콜.
@@ -337,14 +365,24 @@ int write(int fd, const void *buffer, unsigned size) {
 
     if (fd == 1) {
         putbuf(buffer, size);
-        return size;
     }
 
-    return -1;
-}
+    return size;
+} // 미완성일 가능성 있음 (테스트 필요).
 
+////////////////////////////////////////////////////////////////////////////////
+/////////////////// 구현 대상이 아닌 System Call 함수들 (Project 4+) /////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/* 열려있는 파일 fd에서 아래의 tell()위치를 'position'에 담아서 반환하는 함수.
+   Project 4 이후에야 신경을 써야 하는 함수 (그 전까지는 file system이 자체적으로 관련 에러 처리 가능).
+   구체적으로는, seek로 read를 할 경우 EoF에서 0을 반환 (시작점), write를 할 경우 파일을 extend해야 함. */
 // void seek(int fd, unsigned position);
+
+/* 열려있는 파일 fd에서 to-be-read 또는 to-be-written인 다음 바이트의 위치를 반환하는 함수 (파일의 시작 위치부터 Offset of Bytes로 표현).  */
 // unsigned tell(int fd);
+
+/* fd로 대변되는 파일을 닫는 함수. 프로세스의 종료는 관련된 fd를 전부 닫는 효과가 있음 (이 함수를 여러번 호출하는 것과 동일한 효과). */
 // void close(int fd);
 
 ////////////////////////////////////////////////////////////////////////////////
