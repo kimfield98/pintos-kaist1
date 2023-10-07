@@ -112,6 +112,7 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     bool writable;
 
     /* _do_fork()에서 pml4_for_each()로 모든 parent의 페이지테이블 entry에 duplicate_pte를 적용함 */
+
     /* 단, 커널 영역의 페이지테이블은 건드리면 안되니 (1)번으로 방지 필요 */
 
     /* (1) 만일 parent_page가 커널 영역이라면 바로 false 반환 */
@@ -130,7 +131,7 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     memcpy(newpage, parent_page, PGSIZE);
 
     // 제공된 pseudocode에 따르면 여기서 parent page가 writeable 한지 확인해야한다는데 (writeable = 뭔가 확인하는 코드 필요)
-    // 여기서 그 값을 writeable에 저장해야 이 함수가 완성됨 (공부 필요))
+    // 여기서 그 값을 writeable에 저장해야 이 함수가 완성됨 (공부 필요 ; PTE_W bitmask 활용인데 머리가 안돌아감)
 
     /* (5) pml4_set_page로 child의 페이지테이블에 새로운 페이지를 추가/설정 (주소 va에 writeable 권한 제공) */
     if (!pml4_set_page(current->pml4, va, newpage, writable)) {
