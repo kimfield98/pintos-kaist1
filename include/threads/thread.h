@@ -25,7 +25,7 @@ enum thread_status {
 typedef int tid_t;
 #define TID_ERROR ((tid_t)-1) /* Error value for tid_t. */
 
-/* PID 전용 Identifier Type*/
+/* Process Identifier Type */
 typedef int pid_t;
 #define PID_ERROR ((pid_t)-1) /* Error value for tid_t. */
 

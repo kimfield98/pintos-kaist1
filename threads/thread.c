@@ -144,6 +144,14 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     init_thread(t, name, priority);
     tid = t->tid = allocate_tid();
 
+#ifdef USERPROG
+
+    /* fd_table의 메모리 부여 및 락 초기화가 여기서 일어나야 문제가 없음 */
+    t->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
+    lock_init(&t->fd_lock);
+
+#endif
+
     /* 커널 스레드가 ready_list에 있다면 호출, Function/Aux 값을 부여 */
     t->tf.rip = (uintptr_t)kernel_thread;
     t->tf.R.rdi = (uint64_t)function;

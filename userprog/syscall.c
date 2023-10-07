@@ -36,7 +36,7 @@ int allocate_fd(struct file *file);
 struct file *get_file_from_fd(int fd);
 void release_fd(int fd);
 void close_file(int fd);
-void fd_table_destroy();
+// fd_table_destroy는 syscall.h로 이동
 
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// System Call Handlers //////////////////////////////
@@ -89,15 +89,15 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FORK:
-        printf("SYS_FORK NOT YET IMPLEMENTED"); // placeholder
+        printf("\nSYS_FORK NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_EXEC:
-        printf("SYS_EXEC NOT YET IMPLEMENTED"); // placeholder
+        printf("\nSYS_EXEC NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_WAIT:
-        printf("SYS_WAIT NOT YET IMPLEMENTED"); // placeholder
+        printf("\nSYS_WAIT NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_CREATE:
@@ -125,11 +125,11 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_SEEK:
-        printf("SYS_SEEK NOT YET IMPLEMENTED"); // placeholder
+        printf("\nSYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_TELL:
-        printf("SYS_TELL NOT YET IMPLEMENTED"); // placeholder
+        printf("\nSYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_CLOSE:

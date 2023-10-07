@@ -9,6 +9,7 @@
         "synch.h": "c",
         "palloc.h": "c",
         "thread.h": "c",
-        "filesys.h": "c"
+        "filesys.h": "c",
+        "syscall.h": "c"
     }
 }
