@@ -89,15 +89,15 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FORK:
-        printf("\nSYS_FORK NOT YET IMPLEMENTED\n"); // placeholder
+        printf("<<< SYS_FORK NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_EXEC:
-        printf("\nSYS_EXEC NOT YET IMPLEMENTED\n"); // placeholder
+        printf("<<< SYS_EXEC NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_WAIT:
-        printf("\nSYS_WAIT NOT YET IMPLEMENTED\n"); // placeholder
+        printf("<<< SYS_WAIT NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_CREATE:
@@ -125,11 +125,11 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_SEEK:
-        printf("\nSYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
+        printf("<<< SYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_TELL:
-        printf("\nSYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
+        printf("<<< SYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
         break;
 
     case SYS_CLOSE:

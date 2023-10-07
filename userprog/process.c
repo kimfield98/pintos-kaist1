@@ -111,23 +111,35 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     void *newpage;
     bool writable;
 
-    /* 1. TODO: If the parent_page is kernel page, then return immediately. */
+    /* _do_fork()에서 pml4_for_each()로 모든 parent의 페이지테이블 entry에 duplicate_pte를 적용함 */
+    /* 단, 커널 영역의 페이지테이블은 건드리면 안되니 (1)번으로 방지 필요 */
 
-    /* 2. Resolve VA from the parent's page map level 4. */
+    /* (1) 만일 parent_page가 커널 영역이라면 바로 false 반환 */
+    if (is_kernel_vaddr(va))
+        return false;
+
+    /* (2) duplicate_pte()는 각각의 페이지테이블 entry에 적용 ; 우선 부모 역할의 페이지를 포인터로 확보 */
     parent_page = pml4_get_page(parent->pml4, va);
 
-    /* 3. TODO: Allocate new PAL_USER page for the child and set result to
-     *    TODO: NEWPAGE. */
+    /* (3) 새로운 페이지를 선언 및 유저 영역에 NULL-init된 메모리 할당 (페이지 할당) */
+    newpage = palloc_get_page(PAL_USER);
+    if (!newpage)
+        return false;
 
-    /* 4. TODO: Duplicate parent's page to the new page and
-     *    TODO: check whether parent's page is writable or not (set WRITABLE
-     *    TODO: according to the result). */
+    /* (4) parent_page를 newpage로 복제 */
+    memcpy(newpage, parent_page, PGSIZE);
 
-    /* 5. Add new page to child's page table at address VA with WRITABLE
-     *    permission. */
+    // 제공된 pseudocode에 따르면 여기서 parent page가 writeable 한지 확인해야한다는데 (writeable = 뭔가 확인하는 코드 필요)
+    // 여기서 그 값을 writeable에 저장해야 이 함수가 완성됨 (공부 필요))
+
+    /* (5) pml4_set_page로 child의 페이지테이블에 새로운 페이지를 추가/설정 (주소 va에 writeable 권한 제공) */
     if (!pml4_set_page(current->pml4, va, newpage, writable)) {
-        /* 6. TODO: if fail to insert page, do error handling. */
+
+        /* (6) 만일 page insert가 실패한다면 에러 처리 필요 */
+        palloc_free_page(newpage);
+        return false;
     }
+
     return true;
 }
 
@@ -161,7 +173,7 @@ static void __do_fork(void *aux) {
     if (!supplemental_page_table_copy(&current->spt, &parent->spt))
         goto error;
 #else
-    if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
+    if (!pml4_for_each(parent->pml4, duplicate_pte, parent)) // 유저 커널 공간의 모든 pte entry에 duplicate_pte(parent)를 적용하는 함수 ; 성공시 true 반환
         goto error;
 #endif
 
