@@ -112,7 +112,6 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     bool writable;
 
     /* _do_fork()에서 pml4_for_each()로 모든 parent의 페이지테이블 entry에 duplicate_pte를 적용함 */
-
     /* 단, 커널 영역의 페이지테이블은 건드리면 안되니 (1)번으로 방지 필요 */
 
     /* (1) 만일 parent_page가 커널 영역이라면 바로 false 반환 */
