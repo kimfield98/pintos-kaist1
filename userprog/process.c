@@ -12,6 +12,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
+#include "userprog/syscall.h" // fd_table_destroy를 위한 추가
 #include "userprog/tss.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -37,7 +38,17 @@ static void __do_fork(void *);
 static void process_init(void) {
     struct thread *current = thread_current();
 
-    /* 여기 뭔가 채워넣어야 할 것 같은 기분 (현재 아무것도 안하는 함수) */
+    /* (중요) thread.c는 최대한 안건드리고 process.c 내에서 필요한걸 다 처리하는게 맞다고 생각됨. */
+    /* 단, File Descriptor 관련 멤버들 활성화는 thread_create()에서 일어나야 하더라... */
+
+    /* Fork, Exec, Wait 관련 멤버들 활성화 */
+
+    /* (참고) 아래는 thread.h의 struct thread 중 userprog 전용 멤버들 리스트 */
+    // struct semaphore *wait;      // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
+    // struct list children_list;   // 특정 스레드가 발생시킨 Child의 명단
+    // struct list_elem child_elem; // children 리스트 삽입 목적
+    // int exit_status;             // 프로세스 종료시 exit status 코드 저장
+    // bool already_waited;         // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -89,7 +100,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
     return thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
 }
 
-#ifndef VM // duplicate_pte는 VM으로 Define 되지 않았을 경우에만 참고되는 함수
+#ifndef VM // duplicate_pte()는 VM으로 Define 되지 않았을 경우에만 참고되는 함수
 
 /* Parent의 Address Space를 복제하는 함수 (Project 2에서만 사용).
    pml4_for_each() 함수에 Parameter로 넣어야 함. */
@@ -196,7 +207,7 @@ int process_exec(void *f_name) {
     _if.cs = SEL_UCSEG;                   // User Code Segment Selector를 User Code Segment로 초기화
     _if.eflags = FLAG_IF | FLAG_MBS;      // EFLAGS 레지스터에 Interrupt를 켜고, 그냥 레거시 지원을 위해서 필요한 MBS 값도 활성화 (Historical Quirk)
 
-    /* 현재 프로세스의 User-side Virtual Memory pml4를 NULL로 처리한 뒤 삭제 */
+    /* 현재 프로세스의 User-side Virtual Memory pml4를 NULL로 처리한 뒤 페이지 테이블 전용 레지스터를 0으로 초기화 (사용 준비) */
     process_cleanup();
 
     /* 임시로 저장한 intr_frame을 활용해서 파일을 디스크에서 실제로 로딩, 실패시 -1 반환으로 방어.
@@ -205,21 +216,6 @@ int process_exec(void *f_name) {
     palloc_free_page(file_name);
     if (!success)
         return -1;
-
-    /* 프로그램이 로딩 되었으니, struct thread의 관련 정보들 업데이트 */
-
-    // if (success) {
-    //     struct thread *curr = thread_current();
-
-    //     curr->
-    //     // struct list children;         // 특정 스레드가 발생시킨 Child의 명단
-    //     // int exit_status;              // 프로세스 종료시 exit status 코드 저장
-    //     // struct semaphore *child_lock; // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
-    //     // bool already_waited;          // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
-    // }
-
-    /* Debug */
-    // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
     /* 새로운 프로세스로 전환해서 작업 시작 */
     do_iret(&_if);
@@ -232,36 +228,11 @@ int process_exec(void *f_name) {
 int process_wait(tid_t child_tid) {
 
     int i;
-    for (i = 0; i < 1300000000; i++) {
+    for (i = 0; i < 1200000000; i++) {
         // 야매로 무한루프 돌리기
     }
     return -1;
-
-    /* 대강의 Pseudocode (struct thread 수정사항 반영) */
-    // struct thread *current = thread_current();
-    // struct thread *child = get_child_from_tid(child_tid);
-    // if (!child || child->parent != current || child->already_waited) {
-    //     return -1;
-    // }
-    // child->already_waited = true;
-    // sema_down(&child->child_lock);
-    // int status = child->exit_status;
-    // list_remove(&child->child_elem);
-    // return status;
 }
-
-/* Pseudocode for extracting child */
-// struct thread* get_child_from_tid(tid_t tid) {
-//     struct thread *current = thread_current();
-//     struct list_elem *e;
-//     for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
-//         struct thread *child = list_entry(e, struct thread, child_elem);
-//         if (child->tid == tid) {
-//             return child;
-//         }
-//     }
-//     return NULL;
-// }
 
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// Process Exit //////////////////////////////////
@@ -276,10 +247,11 @@ void process_exit(void) {
      * TODO: We recommend you to implement process resource cleanup here. */
     // struct thread의 child_lock free 하는것 잊지 말자
 
-    process_cleanup();
+    fd_table_destroy(); // syscall.c에서 만든 함수로, 열린 파일들을 전부 닫고 fd_table 관련 메모리도 풀어주는 역할
+    process_cleanup();  // user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free)
 }
 
-/* 현재 프로세스의 리소스를 전부 Free 시키는 함수 */
+/* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
 static void process_cleanup(void) {
     struct thread *curr = thread_current();
 
@@ -299,7 +271,7 @@ static void process_cleanup(void) {
 
         // plm4가 이미 NULL이라면 pml4가 없거나 이미 삭제되었기 때문에 별도의 작업이 필요 없음
         curr->pml4 = NULL;   // 현재 프로세스 (스레드)의 pml4 (User-side Mapping)를 NULL로 바꾸고,
-        pml4_activate(NULL); // 현재의 NULL 값으로 CPU의 Active pml4를 설정 (Kernel-side는 그대로)
+        pml4_activate(NULL); // NULL 값으로 CPU의 Active pml4를 비우는 작업 (Kernel-side는 별도로 그대로 유지됨)
         pml4_destroy(pml4);  // 마지막으로 pml4를 destroy()해서 관련된 메모리 Alloc들을 전부 풀어주는 과정
 
         /* 위 과정에서 순서가 굉장히 중요함 ; Timer Interrupt가 호출되면서 Context Switch가 발생할 수 있기 때문.

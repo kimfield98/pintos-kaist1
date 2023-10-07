@@ -145,8 +145,11 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     tid = t->tid = allocate_tid();
 
 #ifdef USERPROG
+
+    /* fd_table의 메모리 부여 및 락 초기화가 여기서 일어나야 문제가 없음 */
     t->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
     lock_init(&t->fd_lock);
+
 #endif
 
     /* 커널 스레드가 ready_list에 있다면 호출, Function/Aux 값을 부여 */
@@ -274,7 +277,9 @@ void thread_exit(void) {
     ASSERT(!intr_context());
 
 #ifdef USERPROG
+
     process_exit();
+
 #endif
 
     /* THREAD_DYING으로 지정하고 스케쥴러를 호출, do_schedule에서 삭제 대상들을 일괄 삭제 */
@@ -428,16 +433,7 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     list_init(&t->donations);        // 우선순위를 기부받는다면 저장하는 리스트
     t->magic = THREAD_MAGIC;
 
-/* 유저 프로그램에 의해서 생성될 경우 별도의 struct thread 멤버들이 있으며, 해당 멤버들을 초기화 해줘야 함 */
-#ifdef USERPROG
-
-    //     list_init(&t->children); // 자세한 사항은 thread.h 참고 요망
-    //     t->exit_status = 0;
-    //     t->child_lock = (struct semaphore *)malloc(sizeof(struct semaphore));
-    //     sema_init(t->child_lock, 0);
-    //     t->already_waited = false;
-
-#endif
+    /* 유저 프로세스의 초기화는 별도로 process.c의 process_init으로 갈음 */
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */
@@ -573,8 +569,10 @@ static void schedule(void) {
     thread_ticks = 0;
 
 #ifdef USERPROG
-    /* Activate the new address space. */
+
+    /* 프로세스의 Address Space를 활성화 */
     process_activate(next);
+
 #endif
 
     /* curr = next인 경우는 다음 작업을 수행하지 않도록 보호  */
