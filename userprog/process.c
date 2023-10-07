@@ -37,7 +37,18 @@ static void __do_fork(void *);
 static void process_init(void) {
     struct thread *current = thread_current();
 
-    /* 여기 뭔가 채워넣어야 할 것 같은 기분 (현재 아무것도 안하는 함수) */
+    /* (중요) thread.c는 최대한 안건드리고 process.c 내에서 필요한걸 다 처리하는게 맞다고 생각됨. */
+
+    /* File Descriptor 관련 멤버들 활성화 */
+    current->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
+    lock_init(&current->fd_lock);
+
+    /* Fork, Exec, Wait 관련 멤버들 활성화 */
+    //     list_init(&t->children); // 자세한 사항은 thread.h 참고 요망
+    //     t->exit_status = 0;
+    //     t->child_lock = (struct semaphore *)malloc(sizeof(struct semaphore));
+    //     sema_init(t->child_lock, 0);
+    //     t->already_waited = false;
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -218,9 +229,6 @@ int process_exec(void *f_name) {
     //     // bool already_waited;          // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
     // }
 
-    /* Debug */
-    // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-
     /* 새로운 프로세스로 전환해서 작업 시작 */
     do_iret(&_if);
     NOT_REACHED();
@@ -236,32 +244,7 @@ int process_wait(tid_t child_tid) {
         // 야매로 무한루프 돌리기
     }
     return -1;
-
-    /* 대강의 Pseudocode (struct thread 수정사항 반영) */
-    // struct thread *current = thread_current();
-    // struct thread *child = get_child_from_tid(child_tid);
-    // if (!child || child->parent != current || child->already_waited) {
-    //     return -1;
-    // }
-    // child->already_waited = true;
-    // sema_down(&child->child_lock);
-    // int status = child->exit_status;
-    // list_remove(&child->child_elem);
-    // return status;
 }
-
-/* Pseudocode for extracting child */
-// struct thread* get_child_from_tid(tid_t tid) {
-//     struct thread *current = thread_current();
-//     struct list_elem *e;
-//     for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
-//         struct thread *child = list_entry(e, struct thread, child_elem);
-//         if (child->tid == tid) {
-//             return child;
-//         }
-//     }
-//     return NULL;
-// }
 
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// Process Exit //////////////////////////////////

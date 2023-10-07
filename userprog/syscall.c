@@ -89,12 +89,15 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FORK:
+        printf("SYS_FORK NOT YET IMPLEMENTED"); // placeholder
         break;
 
     case SYS_EXEC:
+        printf("SYS_EXEC NOT YET IMPLEMENTED"); // placeholder
         break;
 
     case SYS_WAIT:
+        printf("SYS_WAIT NOT YET IMPLEMENTED"); // placeholder
         break;
 
     case SYS_CREATE:
@@ -102,6 +105,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_REMOVE:
+        f->R.rax = remove(f->R.rdi);
         break;
 
     case SYS_OPEN:
@@ -120,23 +124,22 @@ void syscall_handler(struct intr_frame *f) {
         f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
         break;
 
-        /*
-            case SYS_SEEK:
-                break;
+    case SYS_SEEK:
+        printf("SYS_SEEK NOT YET IMPLEMENTED"); // placeholder
+        break;
 
-            case SYS_TELL:
-                break;
+    case SYS_TELL:
+        printf("SYS_TELL NOT YET IMPLEMENTED"); // placeholder
+        break;
 
-            case SYS_CLOSE:
-                break;
-        */
+    case SYS_CLOSE:
+        f->R.rax = close(f->R.rdi);
+        break;
 
     default:
-        printf("Unknown system call: %d\n", syscall_num);
+        printf("Unknown system call: %d\n", syscall_num); // deprecated by placeholder, but kept in place
         thread_exit();
     }
-
-    // 예외처리 더 해줘야할 수 있음.
 
     return;
 }
@@ -264,7 +267,19 @@ bool create(const char *file, unsigned initial_size) {
 
 /* 'file'이라는 이름을 가진 파일을 삭제하는 함수. 성공하면 True, 실패는 False.
    파일은 Open/Close와 무관하게 삭제될 수 있으며, 파일을 자동으로 닫지 않음. */
-// bool remove(const char *file);
+bool remove(const char *file) {
+
+    if (!pointer_validity_check(file)) {
+        exit(-1);
+    }
+
+    bool success = false;
+
+    /* filesys.c 참고 ; create()와 동일 */
+    success = filesys_remove(file);
+
+    return success;
+}
 
 /* 'file'이라는 이름을 가진 파일을 여는 시스템콜.
    file descriptor 값을 반환 (non negative integer). 실패시 -1.
@@ -370,6 +385,16 @@ int write(int fd, const void *buffer, unsigned size) {
     return size;
 } // 미완성일 가능성 있음 (테스트 필요).
 
+/* fd로 대변되는 파일을 닫는 함수. 프로세스의 종료는 관련된 fd를 전부 닫는 효과가 있음 (이 함수를 여러번 호출하는 것과 동일한 효과). */
+void close(int fd) {
+
+    struct thread *t = thread_current();
+
+    if (2 <= fd <= 128) {
+        close_file(fd);
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////// 구현 대상이 아닌 System Call 함수들 (Project 4+) /////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -381,9 +406,6 @@ int write(int fd, const void *buffer, unsigned size) {
 
 /* 열려있는 파일 fd에서 to-be-read 또는 to-be-written인 다음 바이트의 위치를 반환하는 함수 (파일의 시작 위치부터 Offset of Bytes로 표현).  */
 // unsigned tell(int fd);
-
-/* fd로 대변되는 파일을 닫는 함수. 프로세스의 종료는 관련된 fd를 전부 닫는 효과가 있음 (이 함수를 여러번 호출하는 것과 동일한 효과). */
-// void close(int fd);
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////// File Descriptor 전용 함수들 ////////////////////////////
