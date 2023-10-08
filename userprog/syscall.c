@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "filesys/file.h"
 #include "filesys/filesys.h" // 32-bit filesys 버그 해결
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -31,7 +32,9 @@ int open(const char *file);
 int filesize(int fd);
 int read(int fd, void *buffer, unsigned size);
 int write(int fd, const void *buffer, unsigned size);
-// seek(), tell(), close()는 Project 4 이후
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
+void close(int fd);
 
 /* File Descriptor 관련 함수 Prototype & Global Variables */
 int allocate_fd(struct file *file);
@@ -127,11 +130,13 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_SEEK:
-        printf("<<< SYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
+        // printf("<<< SYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
+        seek(f->R.rdi, f->R.rsi);
         break;
 
     case SYS_TELL:
-        printf("<<< SYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
+        // printf("<<< SYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
+        f->R.rax = tell(f->R.rdi);
         break;
 
     case SYS_CLOSE:
@@ -335,6 +340,26 @@ int open(const char *file) {
     if (!opened_file)
         return -1;
 
+    // /* 스레드 이름에 \000 문자열이 자꾸 반복적으로 들어가서, 여기서 혹시 모르니 한번 수동 처리... */
+    // char *weird_thread_name = thread_current()->name;
+    // char *better_thread_name = malloc(strlen(weird_thread_name) + 1); // +1 for null terminator
+    // int i, j = 0;
+    // for (i = 0; i < strlen(weird_thread_name); i++) {
+    //     if (weird_thread_name[i] != '\0') {
+    //         better_thread_name[j++] = weird_thread_name[i];
+    //     }
+    // }
+    // better_thread_name[j] = '\0';
+
+    // /* 만일 파일이 실행중이라면 수정 금지 */
+    // if (strcmp(better_thread_name, file) == 0)
+    //     file_deny_write(opened_file);
+    // free(better_thread_name);
+
+    /* 만일 파일이 실행중이라면 수정 금지 */
+    if (strcmp(thread_current()->name, file) == 0)
+        file_deny_write(opened_file);
+
     /* File Descriptor 번호 부여 및 테이블에 삽입 */
     int fd = allocate_fd(opened_file);
 
@@ -406,16 +431,56 @@ int read(int fd, void *buffer, unsigned size) {
    한번에 putbuf()를 하지 않는다면 다양한 프로세스들의 아웃풋이 콘솔에 혼재되어 프린트되게 됨. */
 int write(int fd, const void *buffer, unsigned size) {
 
+    if (fd == 0) {
+        return -1; // STDIN
+    }
+
     if (!buffer_validity_check(buffer, size)) {
-        exit(-1);
+        exit(-1); // Validity 확인 결과 실패
     }
 
     if (fd == 1) {
         putbuf(buffer, size);
+        return size; // STDOUT
     }
 
-    return size;
-} // 미완성일 가능성 있음 (테스트 필요).
+    struct file *file_to_write = get_file_from_fd(fd);
+    if (!file_to_write) {
+        return -1; // fd로 파일 가져오기 실패
+    }
+
+    if (file_to_write->deny_write == true) {
+        return NULL;
+    } // 만일 deny_write라면 실패 반환 (임시, sync_write 등에서 수정 필요할 가능성 높음)
+
+    int bytes_written = file_write(file_to_write, buffer, size);
+
+    return bytes_written;
+}
+
+/* 열려있는 파일 fd에서 아래의 tell()위치를 'position'에 담아서 반환하는 함수.
+   Project 4 이후에야 신경을 써야 하는 함수 (그 전까지는 file system이 자체적으로 관련 에러 처리 가능).
+   구체적으로는, seek로 read를 할 경우 EoF에서 0을 반환 (시작점), write를 할 경우 파일을 extend해야 함. */
+void seek(int fd, unsigned position) {
+
+    struct file *file = get_file_from_fd(fd);
+    if (!file) {
+        return;
+    }
+
+    file_seek(file, position);
+}
+
+/* 열려있는 파일 fd에서 to-be-read 또는 to-be-written인 다음 바이트의 위치를 반환하는 함수 (파일의 시작 위치부터 Offset of Bytes로 표현).  */
+unsigned tell(int fd) {
+
+    struct file *file = get_file_from_fd(fd);
+    if (!file) {
+        return;
+    }
+
+    return file_tell(file);
+}
 
 /* fd로 대변되는 파일을 닫는 함수. 프로세스의 종료는 관련된 fd를 전부 닫는 효과가 있음 (이 함수를 여러번 호출하는 것과 동일한 효과). */
 void close(int fd) {
@@ -426,18 +491,6 @@ void close(int fd) {
         close_file(fd);
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////
-/////////////////// 구현 대상이 아닌 System Call 함수들 (Project 4+) /////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-/* 열려있는 파일 fd에서 아래의 tell()위치를 'position'에 담아서 반환하는 함수.
-   Project 4 이후에야 신경을 써야 하는 함수 (그 전까지는 file system이 자체적으로 관련 에러 처리 가능).
-   구체적으로는, seek로 read를 할 경우 EoF에서 0을 반환 (시작점), write를 할 경우 파일을 extend해야 함. */
-// void seek(int fd, unsigned position);
-
-/* 열려있는 파일 fd에서 to-be-read 또는 to-be-written인 다음 바이트의 위치를 반환하는 함수 (파일의 시작 위치부터 Offset of Bytes로 표현).  */
-// unsigned tell(int fd);
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////// File Descriptor 전용 함수들 ////////////////////////////
