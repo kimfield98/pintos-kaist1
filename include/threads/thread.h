@@ -108,7 +108,7 @@ struct thread {
 
     struct list_elem elem; /* 원래 포함되어 있는, 가장 기본적인 thread elem */
 
-#ifdef USERPROG
+    // #ifdef USERPROG
 
     /* 기본적으로 포함되어있는 멤버 */
     uint64_t *pml4; /* Page map level 4 */
@@ -118,13 +118,20 @@ struct thread {
     struct file **fd_table; // File Descriptor Table ; init_thread에서 한번 초기화
 
     /* process_wait() 및 exit()을 위해서 추가된 멤버 */
-    struct semaphore *wait;      // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
+
+    struct semaphore fork_sema;       // Parent의 process_fork와 Child의 _do_fork 사이에서 활동 (포크 완료 여부)
+    struct semaphore wait_sema;       // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (자식 사망 여부)
+    struct semaphore free_sema;       // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (진짜 죽어도 되는지 여부)
+    struct intr_frame tf_backup_fork; // fork 과정에서 스냅샷 임시 저장용 멤버
+
+    struct thread *parent_is;    // 부모를 가리키는 포인터
     struct list children_list;   // 특정 스레드가 발생시킨 Child의 명단
     struct list_elem child_elem; // children 리스트 삽입 목적
-    int exit_status;             // 프로세스 종료시 exit status 코드 저장
-    bool already_waited;         // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
 
-#endif
+    int exit_status;     // 프로세스 종료시 exit status 코드 저장
+    bool already_waited; // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
+
+    // #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
     struct supplemental_page_table spt;
