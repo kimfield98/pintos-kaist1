@@ -30,6 +30,8 @@ static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
+int main_lock = 0;
+
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Process Initiation ////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -191,7 +193,7 @@ static void __do_fork(void *aux) {
     process_init();
 
     /* (5) 부모의 Children 리스트에 자식의 child_elem을 넣고, child의 부모 포인터를 업데이트하고, sema_up으로 포크가 완료됨을 통보 */
-    list_push_back(&parent->children_list, &current->child_elem);
+    // list_push_back(&parent->children_list, &current->child_elem);
     current->parent_is = parent;
     sema_up(&parent->fork_sema);
 
@@ -260,11 +262,13 @@ int process_wait(tid_t child_tid) {
 
     struct thread *curr = thread_current();
     struct thread *child = NULL;
-
-    if (strcmp(curr->name, "main") == 0) {
-        thread_sleep(500);
-    }
-
+    // printf("%s     잔다\n",curr->name);
+    // if (strcmp(curr->name, "main") == 0) {
+    //     thread_sleep(800);
+    // }else{
+    //     thread_sleep(700);
+    // }
+    // printf("%s     일어난다\n",curr->name);
     // printf("%s got to process_wait #2 as tid %d\n", thread_current()->name, thread_current()->tid);
 
     /* (1) children_list가 비어있다면 그냥 나가면 됨 */
@@ -280,6 +284,7 @@ int process_wait(tid_t child_tid) {
         struct thread *t = list_entry(e, struct thread, child_elem);
         if (t->tid == child_tid) {
             child = t;
+
             break;
         }
     }
@@ -324,20 +329,26 @@ void process_exit(void) {
     struct thread *curr = thread_current();
 
     /* (1) syscall.c에서 만든 함수로, 열린 파일들을 닫고 메모리까지 풀어주는 함수. */
-    fd_table_destroy();
+    // fd_table_destroy();
 
-    /* (2) Exit Status를 저장/지정 */
-    if (curr->exit_status != -999)
-        curr->exit_status = 0;
+    // /* (2) Exit Status를 저장/지정 */
+    // if (curr->exit_status != -999)
+    //     curr->exit_status = 0;
 
     /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
-    if (curr->parent_is && !curr->already_waited) {
+   
+   if(curr->parent_is){
         sema_up(&curr->parent_is->wait_sema);
         sema_down(&curr->free_sema);
     }
+    if(!curr->parent_is){
 
+        printf("%s\n", curr->name);
+
+    }
     /* (4) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
     process_cleanup();
+    return curr->exit_status;
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */

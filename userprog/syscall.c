@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include "filesys/filesys.h" // 씨발
+#include "userprog/process.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -93,7 +94,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_EXEC:
-        printf("<<< SYS_EXEC NOT YET IMPLEMENTED\n"); // placeholder
+        f->R.rax = exec(f->R.rdi);
         break;
 
     case SYS_WAIT:
@@ -133,7 +134,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_CLOSE:
-        f->R.rax = close(f->R.rdi);
+        close(f->R.rdi);
         break;
 
     default:
@@ -210,7 +211,8 @@ void halt(void) { power_off(); }
 void exit(int status) {
 
     printf("%s: exit(%d)\n", thread_current()->name, status);
-
+    thread_current()->exit_status = status;
+    
     thread_exit();
 } // 미완성일 가능성 있음 (테스트 필요).
 
@@ -239,8 +241,14 @@ pid_t fork(const char *thread_name, struct intr_frame *snapshot) {
 /* Change current process to the executable whose name is given in cmd_line, passing any given arguments.
 This never returns if successful. Otherwise the process terminates with exit state -1, if the program cannot load or run for any reason.
 This function does not change the name of the thread that called exec. Please note that file descriptors remain open across an exec call. */
-// int exec(const char *cmd_line);
+int exec(const char *cmd_line){
 
+    char *fn_copy;
+    fn_copy = palloc_get_page(0);
+    
+
+    return;
+}
 /* Waits for a child process pid and retrieves the child's exit status.
 If pid is still alive, waits until it terminates.
 Then, returns the status that pid passed to exit.
@@ -320,7 +328,6 @@ int open(const char *file) {
     if (!pointer_validity_check(file)) {
         exit(-1);
     }
-
     /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
     struct file *opened_file;
     opened_file = filesys_open(file); // *file의 주소 file
@@ -335,7 +342,7 @@ int open(const char *file) {
         file_close(opened_file);
         return -1;
     }
-
+    
     /* 여기까지 왔으면 성공했으니 fd값 반환 */
     return fd;
 }
@@ -401,7 +408,7 @@ int write(int fd, const void *buffer, unsigned size) {
     if (!buffer_validity_check(buffer, size)) {
         exit(-1);
     }
-
+    
     if (fd == 1) {
         putbuf(buffer, size);
     }
@@ -414,7 +421,7 @@ void close(int fd) {
 
     struct thread *t = thread_current();
 
-    if (2 <= fd <= 128) {
+    if (2 <= fd && fd <= 128) {
         close_file(fd);
     }
 }
