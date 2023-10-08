@@ -63,6 +63,7 @@ tid_t process_create_initd(const char *file_name) {
     tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy);
+
     return tid;
 }
 
@@ -100,7 +101,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     }
 
     /* Caller의 fork_sema를 내리면서 대기 상태 진입 ; _do_fork가 끝날때 Callee가 sema_up 예정 */
-    sema_down(thread_current()->fork_sema);
+    sema_down(&thread_current()->fork_sema);
 
     return pid;
 }
@@ -260,10 +261,7 @@ int process_wait(tid_t child_tid) {
 
     /* (0) Edge case handling */
     if (curr->tid == 1) {
-        int i;
-        for (i = 0; i < 1500000000; i++) {
-            // 야매로 무한루프 돌리기
-        }
+        thread_sleep(500);
     }
 
     /* (1) children_list가 비어있다면 그냥 나가면 됨 */
@@ -290,7 +288,7 @@ int process_wait(tid_t child_tid) {
 
     /* (4) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
-    sema_down(&child->wait_sema);
+    sema_down(&curr->wait_sema);
 
     /* (5) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;
@@ -324,7 +322,7 @@ void process_exit(void) {
 
     /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
     if (curr->parent_is && !curr->already_waited) {
-        sema_up(&curr->wait_sema);
+        sema_up(&curr->parent_is->wait_sema);
         sema_down(&curr->free_sema);
     }
 
