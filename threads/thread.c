@@ -137,20 +137,22 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 
     /* 스레드에 페이지 부여 */
     t = palloc_get_page(PAL_ZERO);
-    if (t == NULL)
+    if (t == NULL) {
+        palloc_free_page(t);
         return TID_ERROR;
+    }
 
     /* 스레드 초기화 작업 */
     init_thread(t, name, priority);
     tid = t->tid = allocate_tid();
 
-#ifdef USERPROG
+    // #ifdef USERPROG
 
     /* fd_table의 메모리 부여 및 락 초기화가 여기서 일어나야 문제가 없음 */
     t->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
     lock_init(&t->fd_lock);
 
-#endif
+    // #endif
 
     /* 커널 스레드가 ready_list에 있다면 호출, Function/Aux 값을 부여 */
     t->tf.rip = (uintptr_t)kernel_thread;
@@ -433,7 +435,13 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     list_init(&t->donations);        // 우선순위를 기부받는다면 저장하는 리스트
     t->magic = THREAD_MAGIC;
 
-    /* 유저 프로세스의 초기화는 별도로 process.c의 process_init으로 갈음 */
+    /* Fork, Exec, Wait 관련 멤버들 활성화 */
+    list_init(&t->children_list);
+    sema_init(&t->fork_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 부모는 해당 child를 down 하면서 대기 (process_fork), 자식은 _do_fork 끝자락에 up 해서 fork 완성 알림
+    sema_init(&t->wait_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 부모는 해당 child를 down 하면서 대기 (process_wait), 자식은 process_exit에서 up해서 본인이 끝남을 알림
+    sema_init(&t->free_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 자식은 exit wait_sema up 이후에 free_sema를 down 하며 대기, 부모는 wait_sema down 통과시 child의 exit 값 호출
+    t->parent_is = NULL;         // 부모 없음
+    t->exit_status = -999;       // 오지 않을 숫자로 초기화
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */

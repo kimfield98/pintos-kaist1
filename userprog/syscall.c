@@ -89,7 +89,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FORK:
-        printf("<<< SYS_FORK NOT YET IMPLEMENTED\n"); // placeholder
+        f->R.rax = fork(f->R.rdi);
         break;
 
     case SYS_EXEC:
@@ -97,7 +97,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_WAIT:
-        printf("<<< SYS_WAIT NOT YET IMPLEMENTED\n"); // placeholder
+        f->R.rax = wait(f->R.rdi);
         break;
 
     case SYS_CREATE:
@@ -214,17 +214,25 @@ void exit(int status) {
     thread_exit();
 } // 미완성일 가능성 있음 (테스트 필요).
 
-/* Create new process which is the clone of current process with the name THREAD_NAME.
-You don't need to clone the value of the registers except %RBX, %RSP, %RBP, and %R12 - %R15, which are callee-saved registers.
-Must return pid of the child process, otherwise shouldn't be a valid pid.
-In child process, the return value should be 0.
-The child should have DUPLICATED resources including file descriptor and virtual memory space.
-Parent process should never return from the fork until it knows whether the child process successfully cloned.
-That is, if the child process fail to duplicate the resource, the fork () call of parent should return the TID_ERROR.
+/* 현재 프로세스의 클론인 'thread_name'이라는 새로운 프로세스를 만드는 함수.
+   RBX, RSP, RBP, R12-15 이외에는 레지스터 값을 복제할 필요 없음 (callee-saved registers).
+   Child 프로세스는 file descriptor와 virtual memory 등을 전부 복제해야 하며, fork()의 리턴값은 0이 되어야 함.
+   Parent 프로세스는 child의 클론이 마무리될 때까지 fork()에서 탈출하면 안됨 ; 리소스 복제에 실패할 경우 fork()는 TID_ERROR를 반환해야 함.
+   기본적으로 pml4_for_each()로 메모리와 페이지테이블 구조를 복제하지만, 이 함수에 들어갈 func를 작성해야 함 (duplicate_pte). */
+pid_t fork(const char *thread_name) {
 
-The template utilizes the pml4_for_each() in threads/mmu.c to copy entire user memory space,
-including corresponding pagetable structures, but you need to fill missing parts of passed pte_for_each_func (See virtual address). */
-// pid_t fork(const char *thread_name);
+    /* 시스템콜이 발생한 시점의 Parent intr_frame을 저장하고 process_fork로 전달 */
+    struct intr_frame *snapshot = &thread_current()->tf;
+    pid_t pid = process_fork(thread_name, snapshot);
+
+    /* 만일 포크가 실패한다면 */
+    if (pid == TID_ERROR) {
+        return TID_ERROR;
+    }
+
+    /* 포크 성공! ; do_fork에서 child의 %Rax 값을 0으로 만들어줬기 때문에 리턴값은 자동으로 처리됨 */
+    return pid;
+}
 
 /* Change current process to the executable whose name is given in cmd_line, passing any given arguments.
 This never returns if successful. Otherwise the process terminates with exit state -1, if the program cannot load or run for any reason.
@@ -245,7 +253,21 @@ wait must fail and return -1 immediately if any of the following conditions is t
     A call to wait(C) by process A must fail. Similarly, orphaned processes are not assigned to a new parent if their parent process exits before they do.
 (2) The process that calls wait has already called wait on pid.
     That is, a process may wait for any given child at most once. */
-// int wait(pid_t pid);
+
+/* 제공되는 child의 pid를 기준으로 무기한 대기하는 함수 ; 타겟 child가 종료되면 exit_status를 리턴.
+   만일 pid가 직접 exit()을 하지 않을 경우, wait()은 여전히 통과해서 -1을 반환해야 함.
+    */
+int wait(pid_t pid) {
+
+    /* 재대로 된 pid가 아니라면 거절 */
+    if (pid < 0) {
+        return -1; // Invalid PID.
+    }
+
+    // 같은 프로세스가 여러개의 wait을 해야할 경우 children_list에 락 추가해야 함.
+
+    return process_wait(pid);
+}
 
 /* 'file'이라는 이름을 가진 'initial_size' 바이트 크기의 파일을 새로 생성하는 시스템콜.
    성공하면 true, 실패하면 false를 반환하면 됨.

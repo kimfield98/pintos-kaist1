@@ -38,17 +38,7 @@ static void __do_fork(void *);
 static void process_init(void) {
     struct thread *current = thread_current();
 
-    /* (중요) thread.c는 최대한 안건드리고 process.c 내에서 필요한걸 다 처리하는게 맞다고 생각됨. */
-    /* 단, File Descriptor 관련 멤버들 활성화는 thread_create()에서 일어나야 하더라... */
-
-    /* Fork, Exec, Wait 관련 멤버들 활성화 */
-
-    /* (참고) 아래는 thread.h의 struct thread 중 userprog 전용 멤버들 리스트 */
-    // struct semaphore *wait;      // 복수의 child를 기다려야 할 수 있으니 이름은 lock이지만 semaphore (0으로 init 필요)
-    // struct list children_list;   // 특정 스레드가 발생시킨 Child의 명단
-    // struct list_elem child_elem; // children 리스트 삽입 목적
-    // int exit_status;             // 프로세스 종료시 exit status 코드 저장
-    // bool already_waited;         // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
+    /* (중요) PintOS는 켜지는 시점부터 thread에서 시작되기에, 그 child가 생길 가능성을 고려해서 thread.c의 thread_create()에 모든 것을 옮겨둠 */
 }
 
 /* 최초의 user-side 프로그램인 initd를 시작하는 함수로, 해당 TID를 반환.
@@ -95,9 +85,24 @@ static void initd(void *f_name) {
 
 /* 현재 구동중인 프로세스를 'name'으로 포크하는 함수.
    성공시 새로운 프로세스의 TID를 반환하거나, 실패시 TID_ERROR 반환. */
-tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
-    /* Clone current thread to new thread.*/
-    return thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
+tid_t process_fork(const char *name, struct intr_frame *if_) {
+
+    /* fork()에서 찍은 tf의 스냅샷을, 현재 스레드의 backup 멤버에게 복사 붙여넣기 */
+    struct intr_frame *parent_backup = &thread_current()->tf_backup_fork;
+    memcpy(parent_backup, if_, sizeof(struct intr_frame));
+
+    /* 스레드 생성, 리턴되는 pid 값 캡쳐 */
+    tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
+
+    /* 만일 스레드 생성에 실패했다면 ERROR 반환  */
+    if (pid == TID_ERROR) {
+        return TID_ERROR;
+    }
+
+    /* Caller의 fork_sema를 내리면서 대기 상태 진입 ; _do_fork가 끝날때 Callee가 sema_up 예정 */
+    sema_down(thread_current()->fork_sema);
+
+    return pid;
 }
 
 #ifndef VM // duplicate_pte()는 VM으로 Define 되지 않았을 경우에만 참고되는 함수
@@ -148,22 +153,18 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
 
 /* 스레드 Function으로, 부모의 Execution Context를 복사하는 함수. */
 static void __do_fork(void *aux) {
-    struct intr_frame if_;
+    struct intr_frame child_if_;
     struct thread *parent = (struct thread *)aux;
     struct thread *current = thread_current();
 
-    /* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-
-    // 여기서 struct thread의 **fd_table 값도 child process에게 줘야 함
-    // 힌트 : parent->tf는 프로세스의 유저 Context를 담고 있지 않음 (process_fork의 2번째 Parameter를 여기에 전달해야 함).
-
-    struct intr_frame *parent_if;
+    /* 앞선 process_fork에서 복사해둔 thread_current의 backup에 접속 */
+    struct intr_frame *parent_if = &parent->tf_backup_fork;
     bool succ = true;
 
-    /* 1. Read the cpu context to local stack. */
-    memcpy(&if_, parent_if, sizeof(struct intr_frame));
+    /* (1) 백업된 intr_frame의 데이터를 복사 */
+    memcpy(&child_if_, parent_if, sizeof(struct intr_frame));
 
-    /* 2. Duplicate PT */
+    /* (2) 페이지테이블을 복사 */
     current->pml4 = pml4_create();
     if (current->pml4 == NULL)
         goto error;
@@ -178,23 +179,33 @@ static void __do_fork(void *aux) {
         goto error;
 #endif
 
-    /* TODO: Your code goes here.
-     * TODO: Hint) To duplicate the file object, use `file_duplicate`
-     * TODO:       in include/filesys/file.h. Note that parent should not return
-     * TODO:       from the fork() until this function successfully duplicates
-     * TODO:       the resources of parent.*/
+    /* (3) File Descriptor를 복사 ; thread_create에서 palloc은 완료 */
+    for (int i = 2; i < 128; i++) {
+        if (parent->fd_table[i] != 0) {
+            current->fd_table[i] = file_duplicate(parent->fd_table[i]);
+        }
+    }
 
+    /* (4) 새로 생성되는 프로세스와 관련된 초기화 작업 수행 */
     process_init();
 
-    /* Finally, switch to the newly created process. */
-    if (succ)
-        do_iret(&if_);
+    /* (5) 부모의 Children 리스트에 자식의 child_elem을 넣고, child의 부모 포인터를 업데이트하고, sema_up으로 포크가 완료됨을 통보 */
+    list_push_back(&parent->children_list, &current->child_elem);
+    current->parent_is = parent;
+    sema_up(&parent->fork_sema);
+
+    /* 최종적으로 완성된 child process로 switch 하는 과정 ; 단, fork된 child는 parent의 fork()에서 사용된 R.rax 값이 비어야 함 */
+    if (succ) {
+        child_if_.R.rax = 0;
+        do_iret(&child_if_);
+    }
 error:
+    sema_up(&parent->fork_sema);
     thread_exit();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-////////////////////////// Process Execution & Wait ////////////////////////////
+///////////////////////////// Process Execution ////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 /* f_name을 새로 생성된 프로세스/스레드 내에서 실행하기 위한 함수.
@@ -235,33 +246,90 @@ int process_exec(void *f_name) {
     NOT_REACHED();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////// Process Wait & Exit ///////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 /* TID로 상징되는 Child Process가 끝나고 exit status로 돌아올 때 까지 대기시키는 함수.
    kernel에 의해서 종료되는 경우 -1을 반환하며,
    TID가 재대로 된 값이 아니거나, caller의 child가 아니거나, process_wait()이 이미 호출 되었어도 -1 반환. */
 int process_wait(tid_t child_tid) {
 
-    int i;
-    for (i = 0; i < 1200000000; i++) {
-        // 야매로 무한루프 돌리기
-    }
-    return -1;
-}
+    struct thread *curr = thread_current();
+    struct thread *child = NULL;
 
-////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////// Process Exit //////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+    /* (0) Edge case handling */
+    if (curr->tid == 1) {
+        int i;
+        for (i = 0; i < 1500000000; i++) {
+            // 야매로 무한루프 돌리기
+        }
+    }
+
+    /* (1) children_list가 비어있다면 그냥 나가면 됨 */
+    if (list_empty(&curr->children_list)) {
+        return 0;
+    }
+
+    /* (2) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 */
+    struct list_elem *e;
+    for (e = list_begin(&curr->children_list); e != list_end(&curr->children_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+        if (t->tid == child_tid) {
+            child = t;
+            break;
+        }
+    }
+
+    /* (3) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
+    if (!child || child->already_waited) {
+        return -1;
+    }
+
+    // GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우)
+
+    /* (4) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
+    child->already_waited = true;
+    sema_down(&child->wait_sema);
+
+    /* (5) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
+    int return_status = child->exit_status;
+
+    /* (6) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
+    sema_up(&child->free_sema);
+
+    /* (7) 이제 없는 자식이니, 호적에서 제거 */
+    list_remove(&child->child_elem);
+
+    /* (8) 최종적으로 return_status 반환 */
+    return return_status;
+}
 
 /* thread_exit에서 호출되는 함수로, 프로세스를 종료시킴. */
 void process_exit(void) {
-    struct thread *curr = thread_current();
+
     /* TODO: Your code goes here.
      * TODO: Implement process termination message (see
      * TODO: project2/process_termination.html).
      * TODO: We recommend you to implement process resource cleanup here. */
-    // struct thread의 child_lock free 하는것 잊지 말자
 
-    fd_table_destroy(); // syscall.c에서 만든 함수로, 열린 파일들을 전부 닫고 fd_table 관련 메모리도 풀어주는 역할
-    process_cleanup();  // user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free)
+    struct thread *curr = thread_current();
+
+    /* (1) syscall.c에서 만든 함수로, 열린 파일들을 닫고 메모리까지 풀어주는 함수. */
+    fd_table_destroy();
+
+    /* (2) Exit Status를 저장/지정 */
+    if (curr->exit_status != -999)
+        curr->exit_status = 0;
+
+    /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
+    if (curr->parent_is && !curr->already_waited) {
+        sema_up(&curr->wait_sema);
+        sema_down(&curr->free_sema);
+    }
+
+    /* (4) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
+    process_cleanup();
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
