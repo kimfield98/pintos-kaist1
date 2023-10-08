@@ -30,8 +30,6 @@ static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
-int main_lock = 0;
-
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Process Initiation ////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -56,7 +54,7 @@ tid_t process_create_initd(const char *file_name) {
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
-    
+
     /* 스레드 이름 파싱 (테스트 통과용) */
     char *save_ptr;
     strtok_r(file_name, " ", &save_ptr); //파일이름 파싱
@@ -191,10 +189,9 @@ static void __do_fork(void *aux) {
 
     /* (4) 새로 생성되는 프로세스와 관련된 초기화 작업 수행 */
     process_init();
-    
+
     /* (5) 부모의 Children 리스트에 자식의 child_elem을 넣고, child의 부모 포인터를 업데이트하고, sema_up으로 포크가 완료됨을 통보 */
-    list_push_back(&parent->children_list, &current->child_elem);
-    current->parent_is = parent;
+    current->parent_is = parent; // thread_create()시점에 정의하긴 했으나, fork caller가 맞도록 다시 재확인
     sema_up(&parent->fork_sema);
 
     /* 최종적으로 완성된 child process로 switch 하는 과정 ; 단, fork된 child는 parent의 fork()에서 사용된 R.rax 값이 비어야 함 */
@@ -258,27 +255,10 @@ int process_exec(void *f_name) {
    TID가 재대로 된 값이 아니거나, caller의 child가 아니거나, process_wait()이 이미 호출 되었어도 -1 반환. */
 int process_wait(tid_t child_tid) {
 
-    // printf("%s got to process_wait #1 as tid %d\n", thread_current()->name, thread_current()->tid);
-
     struct thread *curr = thread_current();
     struct thread *child = NULL;
-    // printf("%s     잔다\n",curr->name);
-    // if (strcmp(curr->name, "main") == 0) {
-    //     thread_sleep(800);
-    // }else{
-    //     thread_sleep(700);
-    // }
-    // printf("%s     일어난다\n",curr->name);
-    // printf("%s got to process_wait #2 as tid %d\n", thread_current()->name, thread_current()->tid);
 
-    /* (1) children_list가 비어있다면 그냥 나가면 됨 */
-    if (list_empty(&curr->children_list)) {
-        return 0;
-    }
-
-    // printf("%s got to process_wait #3 as tid %d\n", thread_current()->name, thread_current()->tid);
-
-    /* (2) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 */
+    /* (1) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 */
     struct list_elem *e;
     for (e = list_begin(&curr->children_list); e != list_end(&curr->children_list); e = list_next(e)) {
         struct thread *t = list_entry(e, struct thread, child_elem);
@@ -289,32 +269,27 @@ int process_wait(tid_t child_tid) {
         }
     }
 
-    // printf("%s got to process_wait #4 as tid %d\n", thread_current()->name, thread_current()->tid);
-
-    /* (3) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
+    /* (2) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
     if (!child || child->already_waited) {
         return -1;
     }
 
-    // GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우)
-    // printf("%s got to process_wait #5 as tid %d\n", thread_current()->name, thread_current()->tid);
+    // (참고) GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우)
 
-    /* (4) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
+    /* (3) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
     sema_down(&curr->wait_sema);
 
-    // printf("%s got to process_wait #6 as tid %d\n", thread_current()->name, thread_current()->tid);
-
-    /* (5) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
+    /* (4) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;
 
-    /* (6) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
+    /* (5) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
     sema_up(&child->free_sema);
 
-    /* (7) 이제 없는 자식이니, 호적에서 제거 */
+    /* (6) 이제 없는 자식이니, 호적에서 제거 */
     list_remove(&child->child_elem);
 
-    /* (8) 최종적으로 return_status 반환 */
+    /* (7) 최종적으로 return_status 반환 */
     return return_status;
 }
 
@@ -336,12 +311,15 @@ void process_exit(void) {
     //     curr->exit_status = 0;
 
     /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
-   
-    if(curr->parent_is){
+
+    if (curr->parent_is) {
         sema_up(&curr->parent_is->wait_sema);
         sema_down(&curr->free_sema);
     }
+    if (!curr->parent_is) {
 
+        printf("%s\n", curr->name);
+    }
     /* (4) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
     process_cleanup();
     return curr->exit_status;

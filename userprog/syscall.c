@@ -1,13 +1,13 @@
 #include "userprog/syscall.h"
-#include "filesys/filesys.h" // 씨발
-#include "userprog/process.h"
+#include "filesys/filesys.h" // 32-bit filesys 버그 해결
 #include "intrinsic.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
-#include "threads/palloc.h"
+#include "userprog/process.h" // 관련 파일 헤더들 전부 연결
 #include <stdio.h>
 #include <syscall-nr.h>
 
@@ -211,11 +211,13 @@ void halt(void) { power_off(); }
    전통적으로 0은 Success, nonzero value는 실패를 의미함 (return). */
 void exit(int status) {
 
+    /* 테스트 통과용 printf */
     printf("%s: exit(%d)\n", thread_current()->name, status);
+
+    /* 유저 프로그램이 직접 제공한 status 값을 exit 하는 프로세스/스레드의 exit_status 값으로 저장 */
     thread_current()->exit_status = status;
-    
     thread_exit();
-} // 미완성일 가능성 있음 (테스트 필요).
+}
 
 /* 현재 프로세스의 클론인 'thread_name'이라는 새로운 프로세스를 만드는 함수.
    RBX, RSP, RBP, R12-15 이외에는 레지스터 값을 복제할 필요 없음 (callee-saved registers).
@@ -239,45 +241,33 @@ pid_t fork(const char *thread_name, struct intr_frame *snapshot) {
     return pid;
 }
 
-/* Change current process to the executable whose name is given in cmd_line, passing any given arguments.
-This never returns if successful. Otherwise the process terminates with exit state -1, if the program cannot load or run for any reason.
-This function does not change the name of the thread that called exec. Please note that file descriptors remain open across an exec call. */
-int exec(const char *cmd_line){
+/* 현재 구동중인 프로세스를 cmd_line이라는 이름을 가진 executable로 바꾸는 함수 (switch execution state of same process).
+   성공하면 리턴값이 없고, 실패시 exit state -1으로 종료됨 ; exec을 부른 스레드의 이름을 바꾸는게 아니고, 열려있는 파일들은 유지됨. */
+int exec(const char *cmd_line) {
 
+    /* 전달받은 cmd_line 값 (파일명 + argv)을 복사 */
     char *cmd_line_copy;
-
     cmd_line_copy = palloc_get_page(0);
     if (cmd_line_copy == NULL) {
         exit(-1);
     }
     strlcpy(cmd_line_copy, cmd_line, PGSIZE);
 
-    if(process_exec(cmd_line_copy) == -1){
+    /* Process Exec을 불러서 실패시 에러 반환 */
+    if (process_exec(cmd_line_copy) == -1) {
         exit(-1);
     }
 
-    printf("exec() is not implemented yet!\n");
-
+    /* Debug ; 성공시 다음 값이 출력되면 안됨 */
+    printf("exec() implementation failed (should never print this or return -1)\n");
 }
 
-/* Waits for a child process pid and retrieves the child's exit status.
-If pid is still alive, waits until it terminates.
-Then, returns the status that pid passed to exit.
-If pid did not call exit(), but was terminated by the kernel (e.g. killed due to an exception), wait(pid) must return -1.
-It is perfectly legal for a parent process to wait for child processes that have already terminated by the time the parent calls wait,
-but the kernel must still allow the parent to retrieve its child’s exit status, or learn that the child was terminated by the kernel.
-
-wait must fail and return -1 immediately if any of the following conditions is true:
-(1) pid does not refer to a direct child of the calling process.
-    pid is a direct child of the calling process if and only if the calling process received pid as a return value from a successful call to fork.
-    Note that children are not inherited: if A spawns child B and B spawns child process C, then A cannot wait for C, even if B is dead.
-    A call to wait(C) by process A must fail. Similarly, orphaned processes are not assigned to a new parent if their parent process exits before they do.
-(2) The process that calls wait has already called wait on pid.
-    That is, a process may wait for any given child at most once. */
-
 /* 제공되는 child의 pid를 기준으로 무기한 대기하는 함수 ; 타겟 child가 종료되면 exit_status를 리턴.
-   만일 pid가 직접 exit()을 하지 않을 경우, wait()은 여전히 통과해서 -1을 반환해야 함.
-    */
+   만일 pid가 직접 exit()을 하지 않을 경우 (커널이 종료시키는 등), wait()은 여전히 통과해서 -1을 반환해야 함.
+   이미 사망한 child를 parent가 wait하는 경우가 있을 수 있으나, 커널이 여전히 사망 원인 (exit_status)를 돌려주 수 있어야 함.
+   다음 2가지 경우에는 wait가 무조건 실패:
+      (1) PID가 호출한 parent의 자식이 아님 ; 손자는 자식이 아니며, 손자를 기다릴 수 없음.
+      (2) 같은 프로세스가 동일 pid에 두번 wait를 걸 수 없음 ; 하나의 프로세스는 하나의 자식을 한번만 기다릴 수 있음. */
 int wait(pid_t pid) {
 
     /* 재대로 된 pid가 아니라면 거절 */
@@ -285,7 +275,7 @@ int wait(pid_t pid) {
         return -1; // Invalid PID.
     }
 
-    // 같은 프로세스가 여러개의 wait을 해야할 경우 children_list에 락 추가해야 함.
+    // (참고) 만일 같은 프로세스가 여러개의 wait을 할 수 있도록 구현하려면 children_list에 락 추가해야 함 (당장은 아님).
 
     return process_wait(pid);
 }
@@ -353,7 +343,7 @@ int open(const char *file) {
         file_close(opened_file);
         return -1;
     }
-    
+
     /* 여기까지 왔으면 성공했으니 fd값 반환 */
     return fd;
 }
@@ -419,7 +409,7 @@ int write(int fd, const void *buffer, unsigned size) {
     if (!buffer_validity_check(buffer, size)) {
         exit(-1);
     }
-    
+
     if (fd == 1) {
         putbuf(buffer, size);
     }
