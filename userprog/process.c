@@ -56,7 +56,7 @@ tid_t process_create_initd(const char *file_name) {
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
-
+    
     /* 스레드 이름 파싱 (테스트 통과용) */
     char *save_ptr;
     strtok_r(file_name, " ", &save_ptr); //파일이름 파싱
@@ -191,9 +191,9 @@ static void __do_fork(void *aux) {
 
     /* (4) 새로 생성되는 프로세스와 관련된 초기화 작업 수행 */
     process_init();
-
+    
     /* (5) 부모의 Children 리스트에 자식의 child_elem을 넣고, child의 부모 포인터를 업데이트하고, sema_up으로 포크가 완료됨을 통보 */
-    // list_push_back(&parent->children_list, &current->child_elem);
+    list_push_back(&parent->children_list, &current->child_elem);
     current->parent_is = parent;
     sema_up(&parent->fork_sema);
 
@@ -337,15 +337,11 @@ void process_exit(void) {
 
     /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
    
-   if(curr->parent_is){
+    if(curr->parent_is){
         sema_up(&curr->parent_is->wait_sema);
         sema_down(&curr->free_sema);
     }
-    if(!curr->parent_is){
 
-        printf("%s\n", curr->name);
-
-    }
     /* (4) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
     process_cleanup();
     return curr->exit_status;

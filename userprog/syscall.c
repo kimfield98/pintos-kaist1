@@ -7,6 +7,7 @@
 #include "threads/loader.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
+#include "threads/palloc.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 
@@ -243,12 +244,22 @@ This never returns if successful. Otherwise the process terminates with exit sta
 This function does not change the name of the thread that called exec. Please note that file descriptors remain open across an exec call. */
 int exec(const char *cmd_line){
 
-    char *fn_copy;
-    fn_copy = palloc_get_page(0);
-    
+    char *cmd_line_copy;
 
-    return;
+    cmd_line_copy = palloc_get_page(0);
+    if (cmd_line_copy == NULL) {
+        exit(-1);
+    }
+    strlcpy(cmd_line_copy, cmd_line, PGSIZE);
+
+    if(process_exec(cmd_line_copy) == -1){
+        exit(-1);
+    }
+
+    printf("exec() is not implemented yet!\n");
+
 }
+
 /* Waits for a child process pid and retrieves the child's exit status.
 If pid is still alive, waits until it terminates.
 Then, returns the status that pid passed to exit.

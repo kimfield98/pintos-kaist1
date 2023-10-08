@@ -443,6 +443,7 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     sema_init(&t->free_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 자식은 exit wait_sema up 이후에 free_sema를 down 하며 대기, 부모는 wait_sema down 통과시 child의 exit 값 호출
     t->parent_is = NULL;         // 부모 없음
     t->exit_status = -999;       // 오지 않을 숫자로 초기화
+    t->already_waited = false;   // 아직 wait를 안했음을 의미
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */
