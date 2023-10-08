@@ -119,9 +119,9 @@ struct thread {
 
     /* process_wait() 및 exit()을 위해서 추가된 멤버 */
 
-    struct semaphore *fork_sema;      // Parent의 process_fork와 Child의 _do_fork 사이에서 활동 (포크 완료 여부)
-    struct semaphore *wait_sema;      // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (자식 사망 여부)
-    struct semaphore *free_sema;      // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (진짜 죽어도 되는지 여부)
+    struct semaphore fork_sema;       // Parent의 process_fork와 Child의 _do_fork 사이에서 활동 (포크 완료 여부)
+    struct semaphore wait_sema;       // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (자식 사망 여부)
+    struct semaphore free_sema;       // Parent의 process_wait과 Child의 process_exit 사이에서 활동 (진짜 죽어도 되는지 여부)
     struct intr_frame tf_backup_fork; // fork 과정에서 스냅샷 임시 저장용 멤버
 
     struct thread *parent_is;    // 부모를 가리키는 포인터

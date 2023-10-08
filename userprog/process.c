@@ -120,9 +120,9 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
     /* _do_fork()에서 pml4_for_each()로 모든 parent의 페이지테이블 entry에 duplicate_pte를 적용함 */
     /* 단, 커널 영역의 페이지테이블은 건드리면 안되니 (1)번으로 방지 필요 */
 
-    /* (1) 만일 parent_page가 커널 영역이라면 바로 false 반환 */
+    /* (1) 만일 parent_page가 커널 영역이라면 바로 true 반환 */
     if (is_kernel_vaddr(va))
-        return false;
+        return true;
 
     /* (2) duplicate_pte()는 각각의 페이지테이블 entry에 적용 ; 우선 부모 역할의 페이지를 포인터로 확보 */
     parent_page = pml4_get_page(parent->pml4, va);
@@ -256,18 +256,23 @@ int process_exec(void *f_name) {
    TID가 재대로 된 값이 아니거나, caller의 child가 아니거나, process_wait()이 이미 호출 되었어도 -1 반환. */
 int process_wait(tid_t child_tid) {
 
+    // printf("%s got to process_wait #1 as tid %d\n", thread_current()->name, thread_current()->tid);
+
     struct thread *curr = thread_current();
     struct thread *child = NULL;
 
-    /* (0) Edge case handling */
-    if (curr->tid == 1) {
+    if (strcmp(curr->name, "main") == 0) {
         thread_sleep(500);
     }
+
+    // printf("%s got to process_wait #2 as tid %d\n", thread_current()->name, thread_current()->tid);
 
     /* (1) children_list가 비어있다면 그냥 나가면 됨 */
     if (list_empty(&curr->children_list)) {
         return 0;
     }
+
+    // printf("%s got to process_wait #3 as tid %d\n", thread_current()->name, thread_current()->tid);
 
     /* (2) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 */
     struct list_elem *e;
@@ -279,16 +284,21 @@ int process_wait(tid_t child_tid) {
         }
     }
 
+    // printf("%s got to process_wait #4 as tid %d\n", thread_current()->name, thread_current()->tid);
+
     /* (3) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
     if (!child || child->already_waited) {
         return -1;
     }
 
     // GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우)
+    // printf("%s got to process_wait #5 as tid %d\n", thread_current()->name, thread_current()->tid);
 
     /* (4) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
     sema_down(&curr->wait_sema);
+
+    // printf("%s got to process_wait #6 as tid %d\n", thread_current()->name, thread_current()->tid);
 
     /* (5) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;

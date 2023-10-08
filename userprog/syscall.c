@@ -20,7 +20,7 @@ bool buffer_validity_check(void *buffer, unsigned size);
 /* 실제 시스템콜 함수 프로토타입 */
 void halt(void);
 void exit(int status);
-pid_t fork(const char *thread_name);
+pid_t fork(const char *thread_name, struct intr_frame *f);
 int exec(const char *cmd_line);
 int wait(pid_t pid);
 bool create(const char *file, unsigned initial_size);
@@ -89,7 +89,7 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_FORK:
-        f->R.rax = fork(f->R.rdi);
+        f->R.rax = fork(f->R.rdi, f);
         break;
 
     case SYS_EXEC:
@@ -219,10 +219,12 @@ void exit(int status) {
    Child 프로세스는 file descriptor와 virtual memory 등을 전부 복제해야 하며, fork()의 리턴값은 0이 되어야 함.
    Parent 프로세스는 child의 클론이 마무리될 때까지 fork()에서 탈출하면 안됨 ; 리소스 복제에 실패할 경우 fork()는 TID_ERROR를 반환해야 함.
    기본적으로 pml4_for_each()로 메모리와 페이지테이블 구조를 복제하지만, 이 함수에 들어갈 func를 작성해야 함 (duplicate_pte). */
-pid_t fork(const char *thread_name) {
+pid_t fork(const char *thread_name, struct intr_frame *snapshot) {
+
+    if (!pointer_validity_check(thread_name))
+        return false;
 
     /* 시스템콜이 발생한 시점의 Parent intr_frame을 저장하고 process_fork로 전달 */
-    struct intr_frame *snapshot = &thread_current()->tf;
     pid_t pid = process_fork(thread_name, snapshot);
 
     /* 만일 포크가 실패한다면 */
