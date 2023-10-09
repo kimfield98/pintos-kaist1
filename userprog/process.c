@@ -293,7 +293,7 @@ int process_wait(tid_t child_tid) {
 
     /* (3) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
-    sema_down(&curr->wait_sema);
+    sema_down(&child->wait_sema);
 
     /* (4) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;
@@ -316,7 +316,7 @@ void process_exit(void) {
     /* (1) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
 
     if (curr->parent_is) {
-        sema_up(&curr->parent_is->wait_sema);
+        sema_up(&curr->wait_sema);
         sema_down(&curr->free_sema);
     }
 
