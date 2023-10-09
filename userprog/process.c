@@ -101,6 +101,10 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     struct intr_frame *parent_backup = &thread_current()->tf_backup_fork;
     memcpy(parent_backup, if_, sizeof(struct intr_frame));
 
+    if (thread_current()->fork_depth >= 30) {
+        return TID_ERROR;
+    }
+
     /* 스레드 생성, 리턴되는 pid 값 캡쳐 */
     tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
 

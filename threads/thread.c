@@ -156,6 +156,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     /* 스레드 생성 시점부터 parent의 children list에 바로 추가 */
     list_push_back(&thread_current()->children_list, &t->child_elem); // 부모 스레드의 children_list에 자식 스레드를 추가
     t->parent_is = thread_current();
+    t->fork_depth = t->parent_is->fork_depth+1;
 
     // #endif
 
@@ -448,6 +449,7 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     t->parent_is = NULL;         // 부모 없음
     t->exit_status = 0;          // 기본 값은 0 (exit 없이 성공적으로 탈출))
     t->already_waited = false; // 해당 자식이 아직 wait를 받은적이 없다는 의미
+    t->fork_depth = 0;
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */
