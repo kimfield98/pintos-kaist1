@@ -55,6 +55,7 @@
         "vaddr.h": "c",
         "interrupt.h": "c",
         "directory.h": "c",
-        "list.h": "c"
+        "list.h": "c",
+        "intrinsic.h": "c"
     }
 }

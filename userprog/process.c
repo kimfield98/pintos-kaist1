@@ -30,9 +30,6 @@ static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
-/* load가 sync가 맞지 않아서 선언한 전역 세마 */
-struct semaphore *load_sema;
-
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Process Initiation ////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -64,7 +61,7 @@ tid_t process_create_initd(const char *file_name) {
 
     /* file_name을 실행하기 위한 새로운 스레드를 생성 (스레드 이름도 initd) */
     tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
-    if (tid == TID_ERROR){
+    if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
         return TID_ERROR;
     }
@@ -96,10 +93,6 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     /* fork()에서 찍은 tf의 스냅샷을, 현재 스레드의 backup 멤버에게 복사 붙여넣기 */
     struct intr_frame *parent_backup = &thread_current()->tf_backup_fork;
     memcpy(parent_backup, if_, sizeof(struct intr_frame));
-
-    // if (thread_current()->fork_depth >= 30) {
-    //     return TID_ERROR;
-    // }
 
     /* 스레드 생성, 리턴되는 pid 값 캡쳐 */
     tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
@@ -251,7 +244,6 @@ int process_exec(void *f_name) {
        load() 함수에서 _if의 값들을 마저 채우고 현재 스레드로 적용함. */
 
     success = load(file_name, &_if);
-    
 
     palloc_free_page(file_name);
     if (!success)
@@ -288,22 +280,21 @@ int process_wait(tid_t child_tid) {
     if (!child || child->already_waited) {
         return -1;
     }
-    
+
     // (참고) GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우) ; 일단 스킵
 
     /* (3) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
-
     sema_down(&child->wait_sema);
 
     /* (4) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;
+
+    /* (5) 이제 없는 자식이니, 호적에서 제거 */
     list_remove(&child->child_elem);
-    /* (5) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
+
+    /* (6) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
     sema_up(&child->free_sema);
-    
-    /* (6) 이제 없는 자식이니, 호적에서 제거 */
-    // list_remove(&child->child_elem);
 
     /* (7) 최종적으로 return_status 반환 */
     return return_status;
@@ -320,26 +311,26 @@ void process_exit(void) {
         printf("%s\n", curr->name);
     }
 
+    /* 열린 파일 전부 닫기*/
+    fd_table_close();
+    // int cnt = 2;
+    // while (cnt < 256) {
+    //     if (table[cnt]) {
+    //         file_close(table[cnt]);
+    //         table[cnt] = NULL;
+    //     }
+    //     cnt++;
+    // }
 
-	int cnt = 2;
-	while (cnt < 256)
-	{
-		if (table[cnt])
-		{
-			file_close(table[cnt]);
-			table[cnt] = NULL;
-		}
-		cnt++;
-	}
-
+    /* 부모의 wait() 대기 ; 부모가 wait을 해줘야 죽을 수 있음 (한계) */
     if (curr->parent_is) {
         sema_up(&curr->wait_sema);
         sema_down(&curr->free_sema);
     }
 
+    /* 페이지 테이블 메모리 반환 및 pml4 리셋 */
     palloc_free_page(table);
     process_cleanup();
-
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
