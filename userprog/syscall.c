@@ -215,7 +215,7 @@ void halt(void) { power_off(); }
 void exit(int status) {
 
     /* 테스트 통과용 printf */
-    printf("%s: exit(%d)\n", thread_current()->name, status);
+    printf("%s: exit(%d)\n", thread_current()->name, status); // 이걸 process_exit()으로 옮기면 syn-read가 조금 더 진행됨 (;;)
 
     /* 유저 프로그램이 직접 제공한 status 값을 exit 하는 프로세스/스레드의 exit_status 값으로 저장 */
     thread_current()->exit_status = status;
@@ -282,8 +282,6 @@ int wait(pid_t pid) {
     if (pid < 0) {
         return -1; // Invalid PID.
     }
-
-    // (참고) 만일 같은 프로세스가 여러개의 wait을 할 수 있도록 구현하려면 children_list에 락 추가해야 함 (당장은 아님).
 
     return process_wait(pid);
 }

@@ -51,6 +51,9 @@
         "inode.h": "c",
         "file.h": "c",
         "loader.h": "c",
-        "gdt.h": "c"
+        "gdt.h": "c",
+        "vaddr.h": "c",
+        "interrupt.h": "c",
+        "directory.h": "c"
     }
 }
