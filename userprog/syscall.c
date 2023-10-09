@@ -130,12 +130,10 @@ void syscall_handler(struct intr_frame *f) {
         break;
 
     case SYS_SEEK:
-        // printf("<<< SYS_SEEK NOT YET IMPLEMENTED\n"); // placeholder
         seek(f->R.rdi, f->R.rsi);
         break;
 
     case SYS_TELL:
-        // printf("<<< SYS_TELL NOT YET IMPLEMENTED\n"); // placeholder
         f->R.rax = tell(f->R.rdi);
         break;
 
@@ -221,6 +219,12 @@ void exit(int status) {
 
     /* 유저 프로그램이 직접 제공한 status 값을 exit 하는 프로세스/스레드의 exit_status 값으로 저장 */
     thread_current()->exit_status = status;
+
+    /* open()에서 파일의 작성 권한을 제한했으니, 이제 같은 이름의 프로그램이 없어진다면 file_allow_write를 해줘야 함 */
+    // 여기서 해야하지 않을까.... children_list의 fd_table을 뒤져서 풀거나,
+    // deny 당할때마다 별도의 리스트에 넣고...?
+
+    /* 스레드 죽이기 */
     thread_exit();
 }
 
@@ -357,8 +361,9 @@ int open(const char *file) {
     // free(better_thread_name);
 
     /* 만일 파일이 실행중이라면 수정 금지 */
-    if (strcmp(thread_current()->name, file) == 0)
+    if (strcmp(thread_current()->name, file) == 0) {
         file_deny_write(opened_file);
+    }
 
     /* File Descriptor 번호 부여 및 테이블에 삽입 */
     int fd = allocate_fd(opened_file);
@@ -379,7 +384,7 @@ int filesize(int fd) {
     /* fd 값을 검증하는 과정이 있으면 좋겠는데, 우선 스킵 */
 
     /* fd에서 파일을 찾아서, */
-    struct file *file = get_file_from_fd(fd); // 여기서 fd 2~128을 검증하긴 함
+    struct file *file = get_file_from_fd(fd); // 여기서 fd 2~256을 검증하긴 함
 
     /* 해당 파일을 검증 */
     if (!file) {
@@ -487,8 +492,11 @@ void close(int fd) {
 
     struct thread *t = thread_current();
 
-    if (2 <= fd && fd <= 128) {
+    /* 탐색해서 맞는 fd를 닫음 */
+    if (2 <= fd && fd <= 256) {
+        lock_acquire(&t->fd_lock);
         close_file(fd);
+        lock_release(&t->fd_lock);
     }
 }
 
@@ -505,7 +513,7 @@ int allocate_fd(struct file *file) {
 
     lock_acquire(&t->fd_lock);
     /* init_thread()에서 palloc된 페이지를 탐색, 0으로 채워진 공간을 확보 */
-    for (int i = 2; i < 128; i++) { // fd 0과 1번은 stdin stdout 전용이니 건너뛰어야 함 ; palloc 공간은 더 크지만 그냥 fd 개수는 128으로 제한
+    for (int i = 2; i < 256; i++) { // fd 0과 1번은 stdin stdout 전용이니 건너뛰어야 함 ; palloc 공간은 더 크지만 그냥 fd 개수는 256으로 제한
         if (t->fd_table[i] == 0) {  // palloc에서 0으로 공간을 채웠으니, 0이면 빈 공간
             t->fd_table[i] = file;  // 파일의 주소를 이 공간에 저장 (포인터/주소는 8바이트)
             lock_release(&t->fd_lock);
@@ -521,7 +529,7 @@ struct file *get_file_from_fd(int fd) {
 
     struct thread *t = thread_current();
 
-    if (fd >= 2 && fd < 128) {
+    if (fd >= 2 && fd < 256) {
         return t->fd_table[fd];
     }
     return NULL; // Invalid fd
@@ -532,11 +540,9 @@ void release_fd(int fd) {
 
     struct thread *t = thread_current();
 
-    lock_acquire(&t->fd_lock);
-    if (fd >= 2 && fd < 128) {
+    if (fd >= 2 && fd < 256) {
         t->fd_table[fd] = 0;
     }
-    lock_release(&t->fd_lock);
 }
 
 /* fd 번호에 해당하는 파일을 닫고 fd를 풀어주는 함수 */
@@ -555,11 +561,13 @@ void fd_table_destroy() {
 
     struct thread *t = thread_current();
 
-    for (int i = 2; i < 128; i++) {
+    lock_acquire(&t->fd_lock);
+    for (int i = 2; i < 256; i++) {
         if (t->fd_table[i]) {
             file_close(t->fd_table[i]);
         }
     }
+    lock_release(&t->fd_lock);
     palloc_free_page(t->fd_table);
 }
 

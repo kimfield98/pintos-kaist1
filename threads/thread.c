@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "filesys/filesys.h" // 추가
 #include "intrinsic.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -149,7 +150,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     // #ifdef USERPROG
 
     /* fd_table의 메모리 부여 및 락 초기화가 여기서 일어나야 문제가 없음 */
-    t->fd_table = (struct file **)palloc_get_page(0); // User-side에 0으로 초기화된 페이지를 새로 Allocate
+    t->fd_table = (struct file **)palloc_get_page(0); // Kernel-side에 0으로 초기화된 페이지를 새로 Allocate
     lock_init(&t->fd_lock);
 
     /* 스레드 생성 시점부터 parent의 children list에 바로 추가 */

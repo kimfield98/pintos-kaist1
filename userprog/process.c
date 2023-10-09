@@ -181,11 +181,13 @@ static void __do_fork(void *aux) {
 #endif
 
     /* (3) File Descriptor를 복사 ; thread_create에서 palloc은 완료 */
-    for (int i = 2; i < 128; i++) {
+    lock_acquire(&parent->fd_lock);
+    for (int i = 2; i < 256; i++) {
         if (parent->fd_table[i] != 0) {
             current->fd_table[i] = file_duplicate(parent->fd_table[i]);
         }
     }
+    lock_release(&parent->fd_lock);
 
     /* (4) 새로 생성되는 프로세스와 관련된 초기화 작업 수행 */
     process_init();
@@ -303,25 +305,26 @@ void process_exit(void) {
 
     struct thread *curr = thread_current();
 
-    /* (1) syscall.c에서 만든 함수로, 열린 파일들을 닫고 메모리까지 풀어주는 함수. */
-    // fd_table_destroy();
-
-    // /* (2) Exit Status를 저장/지정 */
-    // if (curr->exit_status != -999)
-    //     curr->exit_status = 0;
-
-    /* (3) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
+    /* (1) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
 
     if (curr->parent_is) {
         sema_up(&curr->parent_is->wait_sema);
         sema_down(&curr->free_sema);
     }
     if (!curr->parent_is) {
-
         printf("%s\n", curr->name);
     }
-    /* (4) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
+
+    /* (2) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
     process_cleanup();
+
+    /* (3) fd_table_destroy(); -> 이걸로 하면 터지니까 여기서 palloc_free_page만 발췌 */
+    // palloc_free_page(curr->fd_table);
+
+    /* (3) 그런데 또 multi-oom을 하다보니... 파일을 다 닫아줘야 하는데 안닫아서 문제임. Process_cleanup()에 넣으면 process_exec() 떄문에 장애 터짐 */
+    // fd_table_destroy();
+
+    /* (4) 결과값 통보 (리턴) */
     return curr->exit_status;
 }
 
@@ -646,7 +649,7 @@ static bool validate_segment(const struct Phdr *phdr, struct file *file) {
     return true;
 }
 
-#ifndef VM // load_segment(), install_page(), setup_stack()은 Project 2에서만 사용
+#ifndef VM // 아래 load_segment(), install_page(), setup_stack()은 Project 2에서만 사용
 
 /* load_segment() 보조 함수 Prototype */
 static bool install_page(void *upage, void *kpage, bool writable);
