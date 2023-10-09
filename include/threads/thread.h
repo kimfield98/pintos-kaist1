@@ -132,6 +132,8 @@ struct thread {
     bool already_waited; // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
     int fork_depth;  // 포크 얼마나 했는지 알아야 함
 
+    
+
     // #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

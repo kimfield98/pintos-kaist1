@@ -54,6 +54,7 @@
         "gdt.h": "c",
         "vaddr.h": "c",
         "interrupt.h": "c",
-        "directory.h": "c"
+        "directory.h": "c",
+        "list.h": "c"
     }
 }
