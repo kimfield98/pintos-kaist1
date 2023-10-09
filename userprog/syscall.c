@@ -221,8 +221,7 @@ void exit(int status) {
     thread_current()->exit_status = status;
 
     /* open()에서 파일의 작성 권한을 제한했으니, 이제 같은 이름의 프로그램이 없어진다면 file_allow_write를 해줘야 함 */
-    // 여기서 해야하지 않을까.... children_list의 fd_table을 뒤져서 풀거나,
-    // deny 당할때마다 별도의 리스트에 넣고...?
+    // 단, 파일을 재대로 닫아주기만 했다면 권한은 다시 자동으로 복구되니.. 문제의 소지는 있으나 일단 코멘트만 유지
 
     /* 스레드 죽이기 */
     thread_exit();
