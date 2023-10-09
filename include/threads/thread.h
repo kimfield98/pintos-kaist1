@@ -6,8 +6,7 @@
 #include <stdint.h>
 
 #include "threads/interrupt.h"
-#include "threads/synch.h"    // fd_lock을 스레드마다 구현하기 위함
-#include "userprog/process.h" // child_exit_status 참고용
+#include "threads/synch.h" // fd_lock을 스레드마다 구현하기 위함
 
 #ifdef VM
 #include "vm/vm.h"
@@ -131,10 +130,6 @@ struct thread {
 
     int exit_status;     // 프로세스 종료시 exit status 코드 저장
     bool already_waited; // 해당 child에 대한 process_wait()이 이미 호출되었다면 true (False로 init 필요)
-
-    /* Child_exit_status 관리를 위한 멤버 */
-    struct lock exited_child_lock;    // Allocate_fd()에서 사용되는 락, per thread
-    struct list exited_children_list; // 특정 스레드가 발생시킨 Child의 명단
 
     // #endif
 #ifdef VM

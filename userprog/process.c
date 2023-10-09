@@ -8,8 +8,8 @@
 #include "threads/interrupt.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"  // fd_lock을 스레드마다 구현하기 위함
-#include "threads/thread.h" // tid_t
+#include "threads/synch.h" // fd_lock을 스레드마다 구현하기 위함
+#include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
 #include "userprog/syscall.h" // fd_table_destroy를 위한 추가
@@ -274,44 +274,38 @@ int process_wait(tid_t child_tid) {
     struct thread *curr = thread_current();
     struct thread *child = NULL;
 
-    /* (1) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 - 살아있는 경우 발견 */
+    /* (1) Parent의 children_list를 탐색해서 제공된 tid 매칭 작업 수행 */
     struct list_elem *e;
     for (e = list_begin(&curr->children_list); e != list_end(&curr->children_list); e = list_next(e)) {
         struct thread *t = list_entry(e, struct thread, child_elem);
         if (t->tid == child_tid) {
             child = t; // 발견
-            if (!child->already_waited) {
-                child->already_waited = true;
-                int return_status = child->exit_status;
-                list_remove(&child->child_elem);
-                return return_status;
-            }
             break;
         }
     }
 
-    /* (2) 못찾는다면, 죽어있는 child 명단을 조회 */
-    if (!child) {
-        lock_acquire(&curr->exited_child_lock);
-
-        struct list_elem *e;
-        for (e = list_begin(&curr->exited_children_list); e != list_end(&curr->exited_children_list); e = list_next(e)) {
-            struct child_exit_status *exit_structure = list_entry(e, struct child_exit_status, elem);
-            if (exit_structure->tid == child_tid) {
-
-                int status = exit_structure->dead_exit_status; // 값 임시저장
-                palloc_free_page(exit_structure);              // palloc 해방
-
-                lock_release(&curr->exited_child_lock);
-                return status;
-            }
-        }
-
-        lock_release(&curr->exited_child_lock);
+    /* (2) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
+    if (!child || child->already_waited) {
+        return -1;
     }
 
-    /* (3) 정말 없다면 처리해버리자 */
-    return -1;
+    // (참고) GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우) ; 일단 스킵
+
+    /* (3) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
+    child->already_waited = true;
+    sema_down(&curr->wait_sema);
+
+    /* (4) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
+    int return_status = child->exit_status;
+
+    /* (5) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
+    sema_up(&child->free_sema);
+
+    /* (6) 이제 없는 자식이니, 호적에서 제거 */
+    list_remove(&child->child_elem);
+
+    /* (7) 최종적으로 return_status 반환 */
+    return return_status;
 }
 
 /* thread_exit에서 호출되는 함수로, 프로세스를 종료시킴. */
@@ -319,30 +313,29 @@ void process_exit(void) {
 
     struct thread *curr = thread_current();
 
-    /* (1) 만일 부모가 있다면 죽을 당시의 기록을 남기기 (유언장) */
+    /* (1) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
+
     if (curr->parent_is) {
+        sema_up(&curr->parent_is->wait_sema);
+        sema_down(&curr->free_sema);
+    }
 
-        struct thread *parent = curr->parent_is;
-        struct child_exit_status *exit_structure = palloc_get_page(0);
-
-        lock_acquire(&parent->exited_child_lock);
-
-        /* 내 고유번호와 사망 사유를 기록 */
-        exit_structure->tid = curr->tid;
-        exit_structure->dead_exit_status = curr->exit_status;
-
-        /* 부모의 죽은 자식 명단에 추가하고 호적에서 제거 */
-        list_push_back(&parent->exited_children_list, &exit_structure->elem);
-        list_remove(&curr->child_elem);
-
-        lock_release(&parent->exited_child_lock);
+    /* Debug */
+    if (!curr->parent_is) {
+        printf("%s\n", curr->name);
     }
 
     /* (2) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
     process_cleanup();
 
-    /* fd_table_destroy()는 일단 제거 */
-    /* 결과값도 통보할 필요 없음 (void) */
+    /* (3) fd_table_destroy(); -> 이걸로 하면 터지니까 여기서 palloc_free_page만 발췌 */
+    // palloc_free_page(curr->fd_table);
+
+    /* (3) 그런데 또 multi-oom을 하다보니... 파일을 다 닫아줘야 하는데 안닫아서 문제임. Process_cleanup()에 넣으면 process_exec() 떄문에 장애 터짐 */
+    // fd_table_destroy();
+
+    /* (4) 결과값 통보 (리턴) */
+    return curr->exit_status;
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */

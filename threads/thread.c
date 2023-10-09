@@ -7,7 +7,6 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "userprog/process.h" // 추가
 #include <debug.h>
 #include <random.h>
 #include <stddef.h>
@@ -153,10 +152,6 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
     /* fd_table의 메모리 부여 및 락 초기화가 여기서 일어나야 문제가 없음 */
     t->fd_table = (struct file **)palloc_get_page(0); // Kernel-side에 0으로 초기화된 페이지를 새로 Allocate
     lock_init(&t->fd_lock);
-
-    /* 같은 위치에서 child_exit_status 관련 내용도 초기화 */
-    list_init(&t->exited_children_list);
-    lock_init(&t->exited_child_lock);
 
     /* 스레드 생성 시점부터 parent의 children list에 바로 추가 */
     list_push_back(&thread_current()->children_list, &t->child_elem); // 부모 스레드의 children_list에 자식 스레드를 추가
@@ -449,9 +444,10 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     list_init(&t->children_list);
     sema_init(&t->fork_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 부모는 해당 child를 down 하면서 대기 (process_fork), 자식은 _do_fork 끝자락에 up 해서 fork 완성 알림
     sema_init(&t->wait_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 부모는 해당 child를 down 하면서 대기 (process_wait), 자식은 process_exit에서 up해서 본인이 끝남을 알림
+    sema_init(&t->free_sema, 0); // Fork 관점 ; child의 _sema 사용 ; 자식은 exit wait_sema up 이후에 free_sema를 down 하며 대기, 부모는 wait_sema down 통과시 child의 exit 값 호출
     t->parent_is = NULL;         // 부모 없음
-    t->exit_status = 0;          // exit()을 부르지 않을 경우 성공으로 간주해서 0이 나와야 함
-    t->already_waited = false;   // 해당 자식이 아직 wait를 받은적이 없다는 의미
+    t->exit_status = 0;          // 기본 값은 0 (exit 없이 성공적으로 탈출))
+    t->already_waited = false; // 해당 자식이 아직 wait를 받은적이 없다는 의미
 }
 
 /* CPU를 할당받을 다음 스레드를 고르는 함수 (idle thread가 여기서 적용) */
