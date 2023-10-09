@@ -342,6 +342,7 @@ int open(const char *file) {
     /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
     // sema_down(&filesys_sema);
     struct file *opened_file;
+
     opened_file = filesys_open(file); // *file의 주소 file
 
     // sema_up(&filesys_sema);
@@ -581,14 +582,16 @@ void fd_table_destroy() {
 
     struct thread *t = thread_current();
 
-    // lock_acquire(&t->fd_lock);
+    lock_acquire(&t->fd_lock);
     for (int i = 2; i < 256; i++) {
         if (t->fd_table[i]) {
             // file_allow_write(t->fd_table[i]);
             file_close(t->fd_table[i]);
+            t->fd_table[i] = 0;
         }
     }
-    // lock_release(&t->fd_lock);
+    lock_release(&t->fd_lock);
+    
     palloc_free_page(t->fd_table);
 }
 

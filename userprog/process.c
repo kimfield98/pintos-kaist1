@@ -58,12 +58,6 @@ tid_t process_create_initd(const char *file_name) {
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
 
-    // /* 전역 sema 활성화 */
-    // load_sema = palloc_get_page(0); // 어디서 풀어줄지 미지수인데, 어차피 OS가 꺼질때까지 유지되는것 같아서 문제 없을수도 있음.
-    // if (!load_sema)
-    //     return TID_ERROR;
-    // sema_init(&load_sema, 1);
-
     /* 스레드 이름 파싱 (테스트 통과용) */
     char *save_ptr;
     strtok_r(file_name, " ", &save_ptr); //파일이름 파싱
@@ -257,7 +251,7 @@ int process_exec(void *f_name) {
        load() 함수에서 _if의 값들을 마저 채우고 현재 스레드로 적용함. */
 
     success = load(file_name, &_if);
-
+    
 
     palloc_free_page(file_name);
     if (!success)
@@ -292,24 +286,24 @@ int process_wait(tid_t child_tid) {
 
     /* (2) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
     if (!child || child->already_waited) {
-        printf("wait error\n");
         return -1;
     }
-
+    
     // (참고) GPT 리뷰 요청 시, orphaned process도 확인하라 함 (부모가 죽고 자식만 살아있는 경우) ; 일단 스킵
 
     /* (3) 문제없이 찾았다면 child의 already_waited 태그를 업데이트하고, wait_sema 대기 시작. */
     child->already_waited = true;
+
     sema_down(&child->wait_sema);
 
     /* (4) Child가 process_exit에서 시그널을 보냈으니 sema_down(wait_sema)가 통과됨 ; 이제 해당 Child의 exit_status 저장. */
     int return_status = child->exit_status;
-
+    list_remove(&child->child_elem);
     /* (5) sema_down(free_sema)로 기다리고 있는 child (process_exit)에게 시그널 */
     sema_up(&child->free_sema);
-
+    
     /* (6) 이제 없는 자식이니, 호적에서 제거 */
-    list_remove(&child->child_elem);
+    // list_remove(&child->child_elem);
 
     /* (7) 최종적으로 return_status 반환 */
     return return_status;
@@ -319,32 +313,33 @@ int process_wait(tid_t child_tid) {
 void process_exit(void) {
 
     struct thread *curr = thread_current();
-
-    /* (1) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
-
-    // if (curr->parent_is) {
-    //     sema_up(&curr->wait_sema);
-    //     sema_down(&curr->free_sema);
-    // }
+    struct file **table = curr->fd_table;
 
     /* Debug */
     if (!curr->parent_is) {
         printf("%s\n", curr->name);
     }
 
-    /* (2) user-side pml4를 삭제하는 역할 (CPU의 전용 레지스터를 NULL로 채워서 사실상 free) */
-    process_cleanup();
 
-    /* (3) fd_table_destroy(); -> 이걸로 하면 터지니까 여기서 palloc_free_page만 발췌 */
-    // fd_table_destroy();
-
+	int cnt = 2;
+	while (cnt < 256)
+	{
+		if (table[cnt])
+		{
+			file_close(table[cnt]);
+			table[cnt] = NULL;
+		}
+		cnt++;
+	}
 
     if (curr->parent_is) {
         sema_up(&curr->wait_sema);
         sema_down(&curr->free_sema);
     }
-    // fd_table_destroy();
-    palloc_free_page(curr->fd_table);
+
+    palloc_free_page(table);
+    process_cleanup();
+
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
