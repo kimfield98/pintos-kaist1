@@ -121,6 +121,6 @@ static void page_fault(struct intr_frame *f) {
     page_fault_cnt++;  
     exit(-1);
     /* 만일 Fault가 진짜 에러로 발생한 Fault라면, 관련 정보를 보여주고 프로세스를 종료. */
-    printf("Page fault at %p: %s error %s page in %s context.\n", fault_addr, not_present ? "not present" : "rights violation", write ? "writing" : "reading", user ? "user" : "kernel");
-    kill(f);
+    // printf("Page fault at %p: %s error %s page in %s context.\n", fault_addr, not_present ? "not present" : "rights violation", write ? "writing" : "reading", user ? "user" : "kernel");
+    // kill(f);
 }

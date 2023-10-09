@@ -58,11 +58,11 @@ tid_t process_create_initd(const char *file_name) {
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
 
-    /* 전역 sema 활성화 */
-    load_sema = palloc_get_page(0); // 어디서 풀어줄지 미지수인데, 어차피 OS가 꺼질때까지 유지되는것 같아서 문제 없을수도 있음.
-    if (!load_sema)
-        return TID_ERROR;
-    sema_init(load_sema, 1);
+    // /* 전역 sema 활성화 */
+    // load_sema = palloc_get_page(0); // 어디서 풀어줄지 미지수인데, 어차피 OS가 꺼질때까지 유지되는것 같아서 문제 없을수도 있음.
+    // if (!load_sema)
+    //     return TID_ERROR;
+    // sema_init(&load_sema, 1);
 
     /* 스레드 이름 파싱 (테스트 통과용) */
     char *save_ptr;
@@ -70,9 +70,11 @@ tid_t process_create_initd(const char *file_name) {
 
     /* file_name을 실행하기 위한 새로운 스레드를 생성 (스레드 이름도 initd) */
     tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
-    if (tid == TID_ERROR)
+    if (tid == TID_ERROR){
         palloc_free_page(fn_copy);
-
+        return TID_ERROR;
+    }
+    // palloc_free_page(fn_copy);
     return tid;
 }
 
@@ -101,9 +103,9 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     struct intr_frame *parent_backup = &thread_current()->tf_backup_fork;
     memcpy(parent_backup, if_, sizeof(struct intr_frame));
 
-    if (thread_current()->fork_depth >= 30) {
-        return TID_ERROR;
-    }
+    // if (thread_current()->fork_depth >= 30) {
+    //     return TID_ERROR;
+    // }
 
     /* 스레드 생성, 리턴되는 pid 값 캡쳐 */
     tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
@@ -218,7 +220,7 @@ static void __do_fork(void *aux) {
     }
 error:
     sema_up(&parent->fork_sema);
-    thread_exit();
+    exit(-1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -253,9 +255,9 @@ int process_exec(void *f_name) {
 
     /* 임시로 저장한 intr_frame을 활용해서 파일을 디스크에서 실제로 로딩, 실패시 -1 반환으로 방어.
        load() 함수에서 _if의 값들을 마저 채우고 현재 스레드로 적용함. */
-    sema_down(load_sema);
+
     success = load(file_name, &_if);
-    sema_up(load_sema);
+
 
     palloc_free_page(file_name);
     if (!success)
@@ -290,6 +292,7 @@ int process_wait(tid_t child_tid) {
 
     /* (2) 매치가 없다면, 또는 있는데 이미 누군가 wait를 걸었다면, 예외처리. */
     if (!child || child->already_waited) {
+        printf("wait error\n");
         return -1;
     }
 
@@ -319,10 +322,10 @@ void process_exit(void) {
 
     /* (1) 만일 parent가 있고 already_waited가 false라면, parent와 sema 주고 받기. */
 
-    if (curr->parent_is) {
-        sema_up(&curr->wait_sema);
-        sema_down(&curr->free_sema);
-    }
+    // if (curr->parent_is) {
+    //     sema_up(&curr->wait_sema);
+    //     sema_down(&curr->free_sema);
+    // }
 
     /* Debug */
     if (!curr->parent_is) {
@@ -333,13 +336,15 @@ void process_exit(void) {
     process_cleanup();
 
     /* (3) fd_table_destroy(); -> 이걸로 하면 터지니까 여기서 palloc_free_page만 발췌 */
-    // palloc_free_page(curr->fd_table);
-
-    /* (3) 그런데 또 multi-oom을 하다보니... 파일을 다 닫아줘야 하는데 안닫아서 문제임. Process_cleanup()에 넣으면 process_exec() 떄문에 장애 터짐 */
     // fd_table_destroy();
 
-    /* (4) 결과값 통보 (리턴) */
-    return curr->exit_status;
+
+    if (curr->parent_is) {
+        sema_up(&curr->wait_sema);
+        sema_down(&curr->free_sema);
+    }
+    // fd_table_destroy();
+    palloc_free_page(curr->fd_table);
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
@@ -490,7 +495,10 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     char *parsed_file_name = argv[0];
 
     /* 실제 Executable File을 로딩 */
+
     file = filesys_open(parsed_file_name);
+
+    // printf("CUSTOM MESSAGE : file_name : %s\n", parsed_file_name);
     if (file == NULL) {
         printf("load: %s: open failed\n", parsed_file_name);
         goto done;

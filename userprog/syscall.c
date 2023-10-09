@@ -7,6 +7,7 @@
 #include "threads/loader.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "userprog/gdt.h"
 #include "userprog/process.h" // 관련 파일 헤더들 전부 연결
 #include <stdio.h>
@@ -43,6 +44,8 @@ void release_fd(int fd);
 void close_file(int fd);
 // fd_table_destroy는 syscall.h로 이동
 
+struct semaphore filesys_sema; // 파일시스템 동기화를 위한 세마포어
+
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// System Call Handlers //////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -63,7 +66,7 @@ void close_file(int fd);
 void syscall_init(void) {
     write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG) << 32);
     write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
-
+    sema_init(&filesys_sema, 1);
     /* The interrupt service rountine should not serve any interrupts
      * until the syscall_entry swaps the userland stack to the kernel
      * mode stack. Therefore, we masked the FLAG_FL. */
@@ -214,6 +217,7 @@ void halt(void) { power_off(); }
    전통적으로 0은 Success, nonzero value는 실패를 의미함 (return). */
 void exit(int status) {
 
+    // sema_down(&filesys_sema);
     /* 테스트 통과용 printf */
     printf("%s: exit(%d)\n", thread_current()->name, status); // 이걸 process_exit()으로 옮기면 syn-read가 조금 더 진행됨 (;;)
 
@@ -265,7 +269,7 @@ int exec(const char *cmd_line) {
     if (process_exec(cmd_line_copy) == -1) {
         exit(-1);
     }
-
+    // palloc_free_page(cmd_line_copy);    
     /* Debug ; 성공시 다음 값이 출력되면 안됨 */
     printf("exec() implementation failed (should never print this or return -1)\n");
 }
@@ -336,10 +340,17 @@ int open(const char *file) {
         exit(-1);
     }
     /* 파일을 열어보려고 시도하고, 실패시 -1 반환 (struct file 필수) */
+    // sema_down(&filesys_sema);
     struct file *opened_file;
     opened_file = filesys_open(file); // *file의 주소 file
-    if (!opened_file)
+
+    // sema_up(&filesys_sema);
+
+    if (!opened_file){
+
+        // sema_up(&filesys_sema);
         return -1;
+    }
 
     // /* 스레드 이름에 \000 문자열이 자꾸 반복적으로 들어가서, 여기서 혹시 모르니 한번 수동 처리... */
     // char *weird_thread_name = thread_current()->name;
@@ -398,28 +409,31 @@ int filesize(int fd) {
 int read(int fd, void *buffer, unsigned size) {
 
     if (!buffer_validity_check(buffer, size)) {
+
         exit(-1);
     }
-
     /* 읽어온 바이트 수를 기록할 변수 초기화 */
     int read_count = 0;
-
+    // sema_down(&filesys_sema);
     /* fd = 0의 케이스 처리 ; input_getc()는 글자를 하나씩 읽어서 리턴하는 함수 (input.c) */
     if (fd == 0) {
         for (unsigned int i = 0; i < size; i++) {
             ((unsigned char *)buffer)[i] = input_getc();
             read_count++;
         }
+        // sema_up(&filesys_sema);
         return read_count;
     }
 
     /* fd = 0이 아닐 경우 */
     struct file *file = get_file_from_fd(fd);
-    if (!file)
+    if (!file){
+        // sema_up(&filesys_sema);
         return -1; // exit(-1)을 하려다가, 공식 문서에 적힌대로 우선 -1로 바꾼 상태
-
+    }
     read_count = file_read(file, buffer, size); // file_read는 size를 (off_t*) 형태로 바라는 것 같은데, 에러가 떠서 일단 일반 사이즈로 넣음
-
+    
+    // sema_up(&filesys_sema);
     return read_count;
 }
 
@@ -433,29 +447,38 @@ int read(int fd, void *buffer, unsigned size) {
    한번에 putbuf()를 하지 않는다면 다양한 프로세스들의 아웃풋이 콘솔에 혼재되어 프린트되게 됨. */
 int write(int fd, const void *buffer, unsigned size) {
 
+   
+    // sema_down(&filesys_sema);
     if (fd == 0) {
+
         return -1; // STDIN
     }
 
     if (!buffer_validity_check(buffer, size)) {
         exit(-1); // Validity 확인 결과 실패
     }
-
+    // sema_down(&filesys_sema);
     if (fd == 1) {
         putbuf(buffer, size);
+        // sema_up(&filesys_sema);
         return size; // STDOUT
     }
 
     struct file *file_to_write = get_file_from_fd(fd);
     if (!file_to_write) {
+        // sema_up(&filesys_sema);
         return -1; // fd로 파일 가져오기 실패
     }
 
     if (file_to_write->deny_write == true) {
+        // sema_up(&filesys_sema);
         return NULL;
     } // 만일 deny_write라면 실패 반환 (임시, sync_write 등에서 수정 필요할 가능성 높음)
 
+    
     int bytes_written = file_write(file_to_write, buffer, size);
+    
+    // sema_up(&filesys_sema);
 
     return bytes_written;
 }
@@ -558,13 +581,14 @@ void fd_table_destroy() {
 
     struct thread *t = thread_current();
 
-    lock_acquire(&t->fd_lock);
+    // lock_acquire(&t->fd_lock);
     for (int i = 2; i < 256; i++) {
         if (t->fd_table[i]) {
+            // file_allow_write(t->fd_table[i]);
             file_close(t->fd_table[i]);
         }
     }
-    lock_release(&t->fd_lock);
+    // lock_release(&t->fd_lock);
     palloc_free_page(t->fd_table);
 }
 
