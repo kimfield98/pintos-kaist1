@@ -20,6 +20,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define VM
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -464,7 +466,7 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     process_activate(t); // 현재 스레드의 pml4를 활성화하고, 스택포인터를 현재 스레드의 커널 스택 위치로 이동
 
     /* Command Line으로 주어진 내용을 파싱/토큰화 */
-    char *argv[100] = {0}; // 배열 전체를 0으로 Initialize
+    char *argv[128] = {0}; // 배열 전체를 0으로 Initialize
     int argc = 0;
     char *token, *save_ptr;
 
@@ -562,7 +564,8 @@ static bool load(const char *file_name, struct intr_frame *if_) {
 
 done:
     /* 실행이 끝나고 나면 성공/실패 여부와 무관하게 아래 코드 실행 */
-    file_close(file);
+    if(!success) file_close(file);
+    // TODO: if success, thread_current()->exec_file = file;
     return success;
 }
 
@@ -762,6 +765,27 @@ static bool lazy_load_segment(struct page *page, void *aux) {
     /* TODO: Load the segment from the file */
     /* TODO: This called when the first page fault occurs on address VA. */
     /* TODO: VA is available when calling this function. */
+
+    // printf("## lazy load segment\n");
+    struct my_aux *my_aux = aux;
+
+    struct file *file = my_aux->file;
+    off_t ofs = my_aux->ofs;
+    uint8_t *upage = my_aux->upage;
+    uint32_t read_bytes = my_aux->read_bytes;
+    uint32_t zero_bytes = my_aux->zero_bytes;
+    bool writable = my_aux->writable;
+    
+    file_seek(file,ofs);
+
+    size_t page_read_bytes = read_bytes;
+    size_t page_zero_bytes = zero_bytes;
+
+    file_read(file,page->frame->kva,read_bytes);
+
+    free(my_aux);
+
+    return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -784,18 +808,26 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t 
     ASSERT(ofs % PGSIZE == 0);
 
     while (read_bytes > 0 || zero_bytes > 0) {
-        /* Do calculate how to fill this page.
-         * We will read PAGE_READ_BYTES bytes from FILE
-         * and zero the final PAGE_ZERO_BYTES bytes. */
+        /* 이 페이지를 채우는 방법을 계산합니다.
+         * 우리는 FILE에서 PAGE_READ_BYTES 바이트를 읽고
+         * 마지막 PAGE_ZERO_BYTES 바이트를 0으로 설정합니다. */
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-        /* TODO: Set up aux to pass information to the lazy_load_segment. */
-        void *aux = NULL;
+        /* TODO: aux를 설정하여 lazy_load_segment에 정보를 전달합니다. */
+        struct my_aux *aux = malloc(sizeof(struct my_aux));
+        aux->file = file;
+        aux->ofs = ofs; // read_start
+        aux->upage = pg_round_down(upage);
+        aux->read_bytes = page_read_bytes;
+        aux->zero_bytes = page_zero_bytes;
+        aux->writable = writable;
+
         if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable, lazy_load_segment, aux))
             return false;
 
         /* Advance. */
+        ofs += page_read_bytes; // 어디까지 읽었는지 알려주는 변수
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
@@ -805,14 +837,30 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t 
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool setup_stack(struct intr_frame *if_) {
+    struct thread* t  = thread_current();
     bool success = false;
     void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
-    /* TODO: Map the stack on stack_bottom and claim the page immediately.
-     * TODO: If success, set the rsp accordingly.
-     * TODO: You should mark the page is stack. */
-    /* TODO: Your code goes here */
+    // /* TODO: 스택을 stack_bottom에 매핑하고 즉시 페이지를 확보하세요.
+    //  * TODO: 성공하면 rsp를 해당 위치로 설정하세요.
+    //  * TODO: 페이지를 스택으로 표시해야 합니다. */
+    // /* TODO: 여기에 코드를 작성하세요 */
 
+    // if(vm_claim_page(stack_bottom)) {
+    //     if_->rsp = USER_STACK;
+    //     success = true;
+    // }
+    // return success;
+    uint8_t *kpage;
+
+    kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+    if (kpage != NULL) {
+        success = (pml4_get_page(t->pml4, stack_bottom) == NULL && pml4_set_page(t->pml4, stack_bottom, kpage, true));
+        if (success)
+            if_->rsp = USER_STACK;
+        else
+            palloc_free_page(kpage);
+    }
     return success;
 }
 #endif /* VM */
