@@ -147,4 +147,4 @@ make
 cd build
 source ../../activate
 
-$ARGS_NONE
+$EXEC_ONCE

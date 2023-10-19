@@ -86,7 +86,7 @@ void syscall_handler(struct intr_frame *f) {
     // 커널-사이드에서 실행된 결과물을 %rax에 넣어서 반환해야 함
 
     int syscall_num = f->R.rax;
-
+    
     switch (syscall_num) {
 
     case SYS_HALT:
@@ -144,7 +144,7 @@ void syscall_handler(struct intr_frame *f) {
         close(f->R.rdi);
         break;
 
-    default:
+        default:
         printf("Unknown system call: %d\n", syscall_num); // deprecated by placeholder, but kept in place
         thread_exit();
     }
@@ -168,8 +168,8 @@ bool pointer_validity_check(void *addr) {
         return false;
 
     /* 제공된 주소가 Unmapped일 경우 */
-    if (pml4_get_page(thread_current()->pml4, addr) == NULL)
-        return false; // pml4만 확인하는 함수 (나머지 레벨의 page table 들도 검사해야하는데, 우선 이렇게)
+    // if (pml4_get_page(thread_current()->pml4, addr) == NULL)
+    //     return false;   // vm_try_handle_fault에서 검사하도록 넘겨줌
 
     /* 다 통과했으니 */
     return true;
@@ -236,7 +236,7 @@ pid_t fork(const char *thread_name, struct intr_frame *snapshot) {
 
     if (!pointer_validity_check(thread_name))
         return false;
-
+    
     /* 시스템콜이 발생한 시점의 Parent intr_frame을 저장하고 process_fork로 전달 */
     pid_t pid = process_fork(thread_name, snapshot);
 

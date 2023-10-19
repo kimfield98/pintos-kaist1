@@ -173,7 +173,7 @@ static void __do_fork(void *aux) {
     current->pml4 = pml4_create();
     if (current->pml4 == NULL)
         goto error;
-
+    
     process_activate(current);
 #ifdef VM
     supplemental_page_table_init(&current->spt);
@@ -315,24 +315,25 @@ void process_exit(void) {
 
     /* 열린 파일 전부 닫기*/
     fd_table_close();
-    // int cnt = 2;
-    // while (cnt < 256) {
-    //     if (table[cnt]) {
-    //         file_close(table[cnt]);
-    //         table[cnt] = NULL;
-    //     }
-    //     cnt++;
-    // }
+    int cnt = 2;
+    while (cnt < 256) {
+        if (table[cnt]) {
+            file_close(table[cnt]);
+            table[cnt] = NULL;
+        }
+        cnt++;
+    }
+
+
+    /* 페이지 테이블 메모리 반환 및 pml4 리셋 */
+    palloc_free_page(table);
+    process_cleanup();
 
     /* 부모의 wait() 대기 ; 부모가 wait을 해줘야 죽을 수 있음 (한계) */
     if (curr->parent_is) {
         sema_up(&curr->wait_sema);
         sema_down(&curr->free_sema);
     }
-
-    /* 페이지 테이블 메모리 반환 및 pml4 리셋 */
-    palloc_free_page(table);
-    process_cleanup();
 }
 
 /* 현재 프로세스의 페이지 테이블 매핑을 초기화하고, 커널 페이지 테이블만 남기는 함수 */
@@ -846,21 +847,22 @@ static bool setup_stack(struct intr_frame *if_) {
     //  * TODO: 페이지를 스택으로 표시해야 합니다. */
     // /* TODO: 여기에 코드를 작성하세요 */
 
-    // if(vm_claim_page(stack_bottom)) {
-    //     if_->rsp = USER_STACK;
-    //     success = true;
-    // }
-    // return success;
-    uint8_t *kpage;
-
-    kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-    if (kpage != NULL) {
-        success = (pml4_get_page(t->pml4, stack_bottom) == NULL && pml4_set_page(t->pml4, stack_bottom, kpage, true));
-        if (success)
-            if_->rsp = USER_STACK;
-        else
-            palloc_free_page(kpage);
+    if(vm_claim_page(stack_bottom)) {
+        if_->rsp = USER_STACK;
+        success = true;
     }
     return success;
+    
+    // uint8_t *kpage;
+
+    // kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+    // if (kpage != NULL) {
+    //     success = (pml4_get_page(t->pml4, stack_bottom) == NULL && pml4_set_page(t->pml4, stack_bottom, kpage, true));
+    //     if (success)
+    //         if_->rsp = USER_STACK;
+    //     else
+    //         palloc_free_page(kpage);
+    // }
+    // return success;
 }
 #endif /* VM */

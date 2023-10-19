@@ -4,6 +4,8 @@
 #include <hash.h> // spt 구조체 안에서 hash를 사용하기 위해
 #include "threads/palloc.h"
 #include "threads/malloc.h"
+#include "include/lib/kernel/list.h"
+#include "include/lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
