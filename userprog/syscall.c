@@ -36,6 +36,8 @@ int write(int fd, const void *buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap(void *addr);
 
 /* File Descriptor 관련 함수 Prototype & Global Variables */
 int allocate_fd(struct file *file);
@@ -142,6 +144,14 @@ void syscall_handler(struct intr_frame *f) {
 
     case SYS_CLOSE:
         close(f->R.rdi);
+        break;
+
+    case SYS_MMAP:
+        f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        break;
+
+    case SYS_MUNMAP:
+        munmap(f->R.rdi);
         break;
 
         default:
@@ -381,6 +391,10 @@ int filesize(int fd) {
    fd 0은 input_getc()를 통해서 키보드 입력값을 읽어옴. */
 int read(int fd, void *buffer, unsigned size) {
 
+    if(spt_find_page(&thread_current()->spt,buffer)->writable == 0) {
+        exit(-1);
+    }
+
     if (!buffer_validity_check(buffer, size)) {
 
         exit(-1);
@@ -482,6 +496,16 @@ void close(int fd) {
         close_file(fd);
         lock_release(&t->fd_lock);
     }
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+    struct file *file = get_file_from_fd(fd);
+    
+    return do_mmap(addr, length, writable, file, offset);
+}
+
+void munmap(void *addr){
+    do_munmap(addr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

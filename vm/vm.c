@@ -203,6 +203,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 			return false;
 		return vm_do_claim_page (page);
 	}
+
+
 	return false;
 }
 
@@ -289,7 +291,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 void hash_page_destroy(struct hash_elem *e, void *aux)
 {
     struct page *page = hash_entry(e, struct page, h_elem);
-    destroy(page);
+    hash_delete(&thread_current()->spt, &page->h_elem);
+	destroy(page);
     free(page);
 }
 
